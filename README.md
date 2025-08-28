@@ -1,167 +1,167 @@
-# envx
+# @leaperone/envx
 
-一个强大的环境管理CLI工具，基于Node.js和TypeScript开发。
+A powerful environment management CLI tool built with Node.js and TypeScript.
 
-## 🚀 特性
+## 🚀 Features
 
-- ✨ 现代化的命令行界面
-- 🎨 彩色输出和emoji支持
-- 🔧 模块化命令系统
-- 📦 易于扩展和定制
-- 🛡️ 完整的TypeScript类型支持
-- 🔄 最新的依赖版本
+- ✨ Modern command-line interface
+- 🎨 Colored output and emoji support
+- 🔧 Modular command system
+- 📦 Easy to extend and customize
+- 🛡️ Complete TypeScript type support
+- 🔄 Latest dependency versions
 
-## 📦 安装
+## 📦 Installation
 
-### 全局安装
+### Global Installation
 
 ```bash
-npm install -g envx
-# 或者使用pnpm
-pnpm add -g envx
+npm install -g @leaperone/envx
+# or using pnpm
+pnpm add -g @leaperone/envx
 ```
 
-### 本地开发
+### Local Development
 
 ```bash
-git clone <your-repo>
+git clone git@github.com:leaperone/envx.git
 cd envx
 pnpm install
 pnpm link
 ```
 
-## 🎯 使用方法
+## 🎯 Usage
 
-### 基本命令
+### Basic Commands
 
 ```bash
-# 显示帮助信息
+# Show help information
 envx --help
 
-# 克隆环境配置
+# Clone environment configuration
 envx clone my-env
 envx clone my-env ./new-env --force
 envx clone my-env --recursive --depth 3
 
-# 导出环境配置
+# Export environment configuration
 envx export
 envx export production --format yaml --output config.yaml
 envx export dev --format env --include database,redis
 
-# 显示版本信息
+# Show version information
 envx version
 ```
 
-### 命令选项
+### Command Options
 
-- `clone <source> [destination]` - 克隆环境配置
-  - `-f, --force` - 强制覆盖已存在的目标
-  - `-r, --recursive` - 递归克隆包括子环境
-  - `-d, --depth <number>` - 递归操作的克隆深度
+- `clone <source> [destination]` - Clone environment configuration
+  - `-f, --force` - Force overwrite existing target
+  - `-r, --recursive` - Recursively clone including sub-environments
+  - `-d, --depth <number>` - Clone depth for recursive operations
 
-- `export [environment]` - 导出环境配置
-  - `-f, --format <format>` - 导出格式 (json, yaml, env, docker)
-  - `-o, --output <file>` - 输出文件路径
-  - `-i, --include <items>` - 包含特定项目
-  - `-e, --exclude <items>` - 排除特定项目
-  - `-v, --verbose` - 详细输出
+- `export [environment]` - Export environment configuration
+  - `-f, --format <format>` - Export format (json, yaml, env, docker)
+  - `-o, --output <file>` - Output file path
+  - `-i, --include <items>` - Include specific items
+  - `-e, --exclude <items>` - Exclude specific items
+  - `-v, --verbose` - Verbose output
 
-## 🛠️ 开发
+## 🛠️ Development
 
-### 项目结构
+### Project Structure
 
 ```
 envx/
-├── src/                  # TypeScript源代码
-│   ├── index.ts         # CLI入口文件
-│   ├── commands/        # 命令模块
+├── src/                  # TypeScript source code
+│   ├── index.ts         # CLI entry file
+│   ├── commands/        # Command modules
 │   │   ├── version.ts
 │   │   ├── clone.ts
 │   │   └── export.ts
-│   └── utils/           # 工具函数
+│   └── utils/           # Utility functions
 │       └── logger.ts
-├── dist/                # 编译后的JavaScript文件
+├── dist/                # Compiled JavaScript files
 ├── package.json
-├── tsconfig.json        # TypeScript配置
+├── tsconfig.json        # TypeScript configuration
 └── README.md
 ```
 
-### 开发命令
+### Development Commands
 
 ```bash
-# 安装依赖
+# Install dependencies
 pnpm install
 
-# 开发模式运行（使用tsx）
+# Run in development mode (using tsx)
 pnpm dev clone my-env
 
-# 构建项目（使用tsup）
+# Build project (using tsup)
 pnpm build
 
-# 运行构建后的版本
+# Run built version
 pnpm start clone my-env
 
-# 清理构建文件
+# Clean build files
 pnpm clean
 ```
 
-### 构建系统
+### Build System
 
-项目使用 [tsup](https://github.com/egoist/tsup) 作为构建工具，它基于 esbuild 提供：
+The project uses [tsup](https://github.com/egoist/tsup) as the build tool, which provides:
 
-- ⚡️ 极快的构建速度
-- 📦 生成 ESM 格式，支持现代 Node.js
-- 🎯 自动添加 CLI shebang
-- 🗺️ 完整的 sourcemap 支持
-- 📝 TypeScript 声明文件生成
+- ⚡️ Extremely fast build speed
+- 📦 Generates ESM format, supporting modern Node.js
+- 🎯 Automatically adds CLI shebang
+- 🗺️ Complete sourcemap support
+- 📝 TypeScript declaration file generation
 
-### 本地测试
+### Local Testing
 
 ```bash
-# 链接到全局
+# Link to global
 pnpm link
 
-# 测试命令
+# Test commands
 envx clone my-env
 ```
 
-### 添加新命令
+### Adding New Commands
 
-1. 在 `src/commands/` 目录下创建新的TypeScript命令文件
-2. 在 `src/index.ts` 中导入并注册新命令
-3. 使用 `Logger` 类进行输出
-4. 运行 `pnpm build` 重新构建
+1. Create new TypeScript command files in the `src/commands/` directory
+2. Import and register new commands in `src/index.ts`
+3. Use the `Logger` class for output
+4. Run `pnpm build` to rebuild
 
-## 🔧 TypeScript特性
+## 🔧 TypeScript Features
 
-- 完整的类型定义
-- 严格的类型检查
-- 现代化的ES模块支持
-- 源码映射支持
+- Complete type definitions
+- Strict type checking
+- Modern ES module support
+- Source map support
 
-## 📋 依赖版本
+## 📋 Dependency Versions
 
-### 核心依赖
+### Core Dependencies
 
-- **commander**: ^14.0.0 - 命令行参数处理
-- **chalk**: ^5.6.0 - 彩色输出
-- **inquirer**: ^12.9.4 - 交互式命令行
-- **ora**: ^8.2.0 - 加载动画
+- **commander**: ^14.0.0 - Command line argument processing
+- **chalk**: ^5.6.0 - Colored output
+- **inquirer**: ^12.9.4 - Interactive command line
+- **ora**: ^8.2.0 - Loading animations
 
-### 开发依赖
+### Development Dependencies
 
-- **typescript**: ^5.9.2 - TypeScript编译器
-- **tsx**: ^4.20.5 - TypeScript执行器
-- **@types/node**: ^24.3.0 - Node.js类型定义
+- **typescript**: ^5.9.2 - TypeScript compiler
+- **tsx**: ^4.20.5 - TypeScript executor
+- **@types/node**: ^24.3.0 - Node.js type definitions
 
-### 包管理器
+### Package Manager
 
 - **pnpm**: 10.15.0
 
-## 📝 许可证
+## 📝 License
 
 ISC
 
-## 🤝 贡献
+## 🤝 Contributing
 
-欢迎提交Issue和Pull Request！
+Issues and Pull Requests are welcome!

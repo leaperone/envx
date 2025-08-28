@@ -24,7 +24,13 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "version:patch": "pnpm version patch",
+    "version:minor": "pnpm version minor",
+    "version:major": "pnpm version major",
+    "release:patch": "pnpm version:patch && git push origin main --tags",
+    "release:minor": "pnpm version:minor && git push origin main --tags",
+    "release:major": "pnpm version:major && git push origin main --tags"
   },
   "keywords": [
     "cli",
