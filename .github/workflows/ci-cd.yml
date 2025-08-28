@@ -36,11 +36,12 @@ jobs:
         with:
           node-version: '18'
           registry-url: 'https://registry.npmjs.org'
+          scope: '@leaperone'
       - uses: pnpm/action-setup@v2
         with:
           version: 10.15.0
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm publish --no-git-checks
+      - run: pnpm publish --no-git-checks --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

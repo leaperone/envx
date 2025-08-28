@@ -1,5 +1,5 @@
 {
-  "name": "envx",
+  "name": "@leaperone/envx",
   "version": "0.0.1",
   "description": "A powerful environment management CLI tool",
   "main": "dist/index.js",
