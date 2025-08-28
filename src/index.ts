@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import { versionCommand } from './commands/version.js';
 import { cloneCommand } from './commands/clone.js';
 import { exportCommand } from './commands/export.js';
+import { unsetCommand } from './commands/unset.js';
 
 const program = new Command();
 
@@ -18,6 +19,7 @@ program
 versionCommand(program);
 cloneCommand(program);
 exportCommand(program);
+unsetCommand(program);
 
 // 默认命令
 program

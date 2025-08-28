@@ -4,42 +4,31 @@ import { spawn } from 'child_process';
 
 type ShellKind = 'sh' | 'cmd' | 'powershell';
 
-interface ExportOptions {
+interface UnsetOptions {
   verbose?: boolean;
   shell?: ShellKind;
   apply?: boolean;
-  exec?: string;
   print?: boolean;
 }
 
-type EnvMap = Record<string, string>;
-
-function parseEnv(content: string): EnvMap {
-  const env: EnvMap = {};
+function parseKeys(content: string): string[] {
+  const keys: string[] = [];
   const lines = content.split(/\r?\n/);
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line || line.startsWith('#')) continue;
     const eqIndex = line.indexOf('=');
-    if (eqIndex === -1) continue;
-    const key = line.slice(0, eqIndex).trim();
-    let value = line.slice(eqIndex + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    env[key] = value;
+    const key = eqIndex === -1 ? line : line.slice(0, eqIndex);
+    const trimmedKey = key.trim();
+    if (trimmedKey) keys.push(trimmedKey);
   }
-  return env;
+  return keys;
 }
 
-function serializeLine(key: string, value: string, shell: ShellKind): string {
-  const escaped = value.replace(/"/g, '\\"');
-  if (shell === 'cmd') return `set ${key}="${escaped}"`;
-  if (shell === 'powershell') return `$Env:${key} = "${escaped}"`;
-  return `export ${key}="${escaped}"`;
+function serializeUnset(key: string, shell: ShellKind): string {
+  if (shell === 'cmd') return `set ${key}=`;
+  if (shell === 'powershell') return `Remove-Item Env:${key} -ErrorAction SilentlyContinue`;
+  return `unset ${key}`;
 }
 
 function detectDefaultShell(): ShellKind {
@@ -53,27 +42,24 @@ function detectInteractiveShellProgram(shell: ShellKind): { program: string; arg
   if (process.platform === 'win32') {
     if (shell === 'powershell') return { program: 'powershell.exe', args: ['-NoExit'] };
     if (shell === 'cmd') return { program: 'cmd.exe', args: ['/K'] };
-    // Fallback to PowerShell
     return { program: 'powershell.exe', args: ['-NoExit'] };
   }
-  // POSIX
   const userShell = process.env.SHELL || '/bin/sh';
   return { program: userShell, args: ['-i'] };
 }
 
-export function exportCommand(program: Command): void {
+export function unsetCommand(program: Command): void {
   program
-    .command('export <url>')
-    .description('Fetch plaintext env from URL and print/apply shell commands (sh|cmd|powershell)')
+    .command('unset <url>')
+    .description('Fetch keys from URL and unset them (apply or print)')
     .option('-s, --shell <shell>', 'Target shell: sh | cmd | powershell')
-    .option('--apply', 'Start a new subshell with variables applied (default if no --print)')
-    .option('--exec <command>', 'Run a command with variables applied')
+    .option('--apply', 'Start a new subshell with variables unset (default if no --print)')
     .option('--print', 'Only print commands, do not execute')
     .option('-v, --verbose', 'Verbose output')
-    .action(async (url: string, options: ExportOptions = {}) => {
+    .action(async (url: string, options: UnsetOptions = {}) => {
       const shell: ShellKind = (options.shell as ShellKind) || detectDefaultShell();
 
-      console.log(chalk.blue('📤 Exporting environment variables from remote...'));
+      console.log(chalk.blue('🧹 Unsetting environment variables from remote...'));
       console.log(chalk.white(`   URL: ${url}`));
       console.log(chalk.white(`   Shell: ${shell}`));
 
@@ -104,39 +90,28 @@ export function exportCommand(program: Command): void {
         }
 
         const remoteText = await res.text();
-        const envMap = parseEnv(remoteText);
-
-        // Execute a command with these env vars
-        if (options.exec) {
-          const child = spawn(options.exec, {
-            stdio: 'inherit',
-            shell: true,
-            env: { ...process.env, ...envMap },
-          });
-          child.on('exit', code => {
-            process.exitCode = code == null ? 0 : code;
-          });
-          return;
-        }
+        const keys = parseKeys(remoteText);
 
         // Only print if explicitly requested
         if (options.print) {
-          const lines = Object.entries(envMap).map(([k, v]) => serializeLine(k, v, shell));
+          const lines = keys.map(k => serializeUnset(k, shell));
           const output = lines.join('\n');
           if (options.verbose) {
-            console.log(chalk.gray('\n# Commands to set variables in your current shell'));
+            console.log(chalk.gray('\n# Commands to unset variables in your current shell'));
           }
           process.stdout.write(output + '\n');
-          console.log(chalk.green('\n✅ Environment variables printed for shell.'));
+          console.log(chalk.green('\n✅ Unset commands printed for shell.'));
           return;
         }
 
-        // Start an interactive subshell with env applied (default behavior)
+        // Start an interactive subshell with env UNSET (default behavior)
         if (options.apply || !options.print) {
-          const { program, args } = detectInteractiveShellProgram(shell);
-          const child = spawn(program, args, {
+          const { program: prog, args } = detectInteractiveShellProgram(shell);
+          const newEnv = { ...process.env } as Record<string, string | undefined>;
+          for (const k of keys) delete newEnv[k];
+          const child = spawn(prog, args, {
             stdio: 'inherit',
-            env: { ...process.env, ...envMap },
+            env: newEnv as Record<string, string>,
           });
           child.on('exit', code => {
             process.exitCode = code == null ? 0 : code;
@@ -145,7 +120,7 @@ export function exportCommand(program: Command): void {
         }
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
-        console.error(chalk.red(`❌ Export failed: ${message}`));
+        console.error(chalk.red(`❌ Unset failed: ${message}`));
         process.exitCode = 1;
       }
     });
