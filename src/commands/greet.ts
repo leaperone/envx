@@ -13,12 +13,12 @@ export function greetCommand(program: Command): void {
     .option('-f, --formal', 'Use formal greeting')
     .option('-c, --color <color>', 'Choose greeting color', 'green')
     .action((name: string, options: GreetOptions) => {
-      const greeting = options.formal 
+      const greeting = options.formal
         ? `Good day, ${name}! It's a pleasure to meet you.`
         : `Hello, ${name}! 👋`;
-      
+
       const color = options.color || 'green';
-      
+
       // 安全地使用chalk颜色
       let coloredGreeting: string;
       if (color === 'red') {
@@ -34,9 +34,9 @@ export function greetCommand(program: Command): void {
       } else {
         coloredGreeting = chalk.green(greeting);
       }
-      
+
       console.log(coloredGreeting);
-      
+
       if (!options.formal) {
         console.log(chalk.gray('Use --formal for a more professional greeting'));
       }

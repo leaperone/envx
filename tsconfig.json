@@ -30,14 +30,8 @@
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true
   },
-  "include": [
-    "src/**/*"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "bin"
-  ],
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "bin"],
   "ts-node": {
     "esm": true
   }

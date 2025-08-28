@@ -4,7 +4,8 @@ import chalk from 'chalk';
 // 这些常量会在构建时被 tsup 替换
 const PACKAGE_NAME = process.env.PACKAGE_NAME || 'envx';
 const PACKAGE_VERSION = process.env.PACKAGE_VERSION || '1.0.0';
-const PACKAGE_DESCRIPTION = process.env.PACKAGE_DESCRIPTION || 'A powerful environment management CLI tool';
+const PACKAGE_DESCRIPTION =
+  process.env.PACKAGE_DESCRIPTION || 'A powerful environment management CLI tool';
 const PACKAGE_LICENSE = process.env.PACKAGE_LICENSE || 'ISC';
 
 export function versionCommand(program: Command): void {
@@ -17,7 +18,7 @@ export function versionCommand(program: Command): void {
       console.log(chalk.white(`   Version: ${PACKAGE_VERSION}`));
       console.log(chalk.white(`   Description: ${PACKAGE_DESCRIPTION}`));
       console.log(chalk.white(`   License: ${PACKAGE_LICENSE}`));
-      
+
       console.log(chalk.blue('\n🔧 System Information:'));
       console.log(chalk.white(`   Node.js: ${process.version}`));
       console.log(chalk.white(`   Platform: ${process.platform}`));
