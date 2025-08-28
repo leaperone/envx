@@ -38,10 +38,15 @@ pnpm link
 # 显示帮助信息
 envx --help
 
-# 问候命令
-envx greet World
-envx greet World --formal
-envx greet World --color red
+# 克隆环境配置
+envx clone my-env
+envx clone my-env ./new-env --force
+envx clone my-env --recursive --depth 3
+
+# 导出环境配置
+envx export
+envx export production --format yaml --output config.yaml
+envx export dev --format env --include database,redis
 
 # 显示版本信息
 envx version
@@ -49,9 +54,17 @@ envx version
 
 ### 命令选项
 
-- `greet <name>` - 问候某人
-  - `-f, --formal` - 使用正式问候语
-  - `-c, --color <color>` - 选择问候语颜色 (支持: red, blue, yellow, magenta, cyan, green)
+- `clone <source> [destination]` - 克隆环境配置
+  - `-f, --force` - 强制覆盖已存在的目标
+  - `-r, --recursive` - 递归克隆包括子环境
+  - `-d, --depth <number>` - 递归操作的克隆深度
+
+- `export [environment]` - 导出环境配置
+  - `-f, --format <format>` - 导出格式 (json, yaml, env, docker)
+  - `-o, --output <file>` - 输出文件路径
+  - `-i, --include <items>` - 包含特定项目
+  - `-e, --exclude <items>` - 排除特定项目
+  - `-v, --verbose` - 详细输出
 
 ## 🛠️ 开发
 
@@ -62,8 +75,9 @@ envx/
 ├── src/                  # TypeScript源代码
 │   ├── index.ts         # CLI入口文件
 │   ├── commands/        # 命令模块
-│   │   ├── greet.ts
-│   │   └── version.ts
+│   │   ├── version.ts
+│   │   ├── clone.ts
+│   │   └── export.ts
 │   └── utils/           # 工具函数
 │       └── logger.ts
 ├── dist/                # 编译后的JavaScript文件
@@ -79,13 +93,13 @@ envx/
 pnpm install
 
 # 开发模式运行（使用tsx）
-pnpm dev greet World
+pnpm dev clone my-env
 
 # 构建项目（使用tsup）
 pnpm build
 
 # 运行构建后的版本
-pnpm start greet World
+pnpm start clone my-env
 
 # 清理构建文件
 pnpm clean
@@ -108,7 +122,7 @@ pnpm clean
 pnpm link
 
 # 测试命令
-envx greet World
+envx clone my-env
 ```
 
 ### 添加新命令

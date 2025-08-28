@@ -2,8 +2,9 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { greetCommand } from './commands/greet.js';
 import { versionCommand } from './commands/version.js';
+import { cloneCommand } from './commands/clone.js';
+import { exportCommand } from './commands/export.js';
 
 const program = new Command();
 
@@ -14,8 +15,9 @@ program
   .version('1.0.0');
 
 // 添加命令
-greetCommand(program);
 versionCommand(program);
+cloneCommand(program);
+exportCommand(program);
 
 // 默认命令
 program
