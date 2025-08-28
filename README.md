@@ -75,7 +75,7 @@ pnpm install
 # 开发模式运行（使用tsx）
 pnpm dev greet World
 
-# 构建项目
+# 构建项目（使用tsup）
 pnpm build
 
 # 运行构建后的版本
@@ -84,6 +84,14 @@ pnpm start greet World
 # 清理构建文件
 pnpm clean
 ```
+
+### 构建系统
+项目使用 [tsup](https://github.com/egoist/tsup) 作为构建工具，它基于 esbuild 提供：
+- ⚡️ 极快的构建速度
+- 📦 生成 ESM 格式，支持现代 Node.js
+- 🎯 自动添加 CLI shebang
+- 🗺️ 完整的 sourcemap 支持
+- 📝 TypeScript 声明文件生成
 
 ### 本地测试
 ```bash

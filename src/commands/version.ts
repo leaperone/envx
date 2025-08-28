@@ -1,41 +1,26 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 
-interface PackageJson {
-  name: string;
-  version: string;
-  description: string;
-  license: string;
-}
+// 这些常量会在构建时被 tsup 替换
+const PACKAGE_NAME = process.env.PACKAGE_NAME || 'envx';
+const PACKAGE_VERSION = process.env.PACKAGE_VERSION || '1.0.0';
+const PACKAGE_DESCRIPTION = process.env.PACKAGE_DESCRIPTION || 'A powerful environment management CLI tool';
+const PACKAGE_LICENSE = process.env.PACKAGE_LICENSE || 'ISC';
 
 export function versionCommand(program: Command): void {
   program
     .command('version')
     .description('Show detailed version information')
     .action(() => {
-      const __filename = fileURLToPath(import.meta.url);
-      const __dirname = dirname(__filename);
-      const packagePath = join(__dirname, '../../package.json');
+      console.log(chalk.blue('📦 Package Information:'));
+      console.log(chalk.white(`   Name: ${PACKAGE_NAME}`));
+      console.log(chalk.white(`   Version: ${PACKAGE_VERSION}`));
+      console.log(chalk.white(`   Description: ${PACKAGE_DESCRIPTION}`));
+      console.log(chalk.white(`   License: ${PACKAGE_LICENSE}`));
       
-      try {
-        const packageJson: PackageJson = JSON.parse(readFileSync(packagePath, 'utf8'));
-        
-        console.log(chalk.blue('📦 Package Information:'));
-        console.log(chalk.white(`   Name: ${packageJson.name}`));
-        console.log(chalk.white(`   Version: ${packageJson.version}`));
-        console.log(chalk.white(`   Description: ${packageJson.description}`));
-        console.log(chalk.white(`   License: ${packageJson.license}`));
-        
-        console.log(chalk.blue('\n🔧 System Information:'));
-        console.log(chalk.white(`   Node.js: ${process.version}`));
-        console.log(chalk.white(`   Platform: ${process.platform}`));
-        console.log(chalk.white(`   Architecture: ${process.arch}`));
-        
-      } catch (error) {
-        console.error(chalk.red('Error reading package.json:', (error as Error).message));
-      }
+      console.log(chalk.blue('\n🔧 System Information:'));
+      console.log(chalk.white(`   Node.js: ${process.version}`));
+      console.log(chalk.white(`   Platform: ${process.platform}`));
+      console.log(chalk.white(`   Architecture: ${process.arch}`));
     });
 }

@@ -3,31 +3,44 @@
   "version": "1.0.0",
   "description": "A powerful environment management CLI tool",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "type": "module",
   "bin": {
     "envx": "./dist/index.js"
   },
   "scripts": {
     "dev": "tsx src/index.ts",
-    "build": "tsc",
+    "build": "tsup",
     "start": "node dist/index.js",
     "clean": "rm -rf dist",
     "prebuild": "npm run clean",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["cli", "environment", "env", "management"],
+  "keywords": [
+    "cli",
+    "environment",
+    "env",
+    "management"
+  ],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.15.0",
   "dependencies": {
-    "commander": "^14.0.0",
     "chalk": "^5.6.0",
+    "commander": "^14.0.0",
     "inquirer": "^12.9.4",
     "ora": "^8.2.0"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
-    "typescript": "^5.9.2",
-    "tsx": "^4.20.5"
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
   }
 }
