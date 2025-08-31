@@ -1,53 +1,15 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { promises as fs } from 'fs';
 import path from 'path';
+import { 
+  parseEnv, 
+  serializeEnv, 
+  readEnvFile,
+  mergeEnvWithConfig
+} from '../utils/env';
 
 interface CloneOptions {
   force?: boolean;
-}
-
-type EnvMap = Record<string, string>;
-
-function parseEnv(content: string): EnvMap {
-  const env: EnvMap = {};
-  const lines = content.split(/\r?\n/);
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const eqIndex = line.indexOf('=');
-    if (eqIndex === -1) continue;
-    const key = line.slice(0, eqIndex).trim();
-    let value = line.slice(eqIndex + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    env[key] = value;
-  }
-  return env;
-}
-
-function serializeEnv(env: EnvMap): string {
-  return Object.entries(env)
-    .map(([k, v]) => `${k}="${v.replace(/"/g, '\\"')}"`)
-    .join('\n')
-    .concat('\n');
-}
-
-async function readEnvFile(filePath: string): Promise<EnvMap> {
-  try {
-    const content = await fs.readFile(filePath, 'utf8');
-    return parseEnv(content);
-  } catch (err: unknown) {
-    const code = (err as { code?: string })?.code;
-    if (code === 'ENOENT' || code === 'ENOTDIR') {
-      return {};
-    }
-    throw err;
-  }
 }
 
 export function cloneCommand(program: Command): void {
@@ -96,19 +58,14 @@ export function cloneCommand(program: Command): void {
         const remoteEnv = parseEnv(remoteText);
         const localEnv = await readEnvFile(target);
 
-        const merged: EnvMap = {};
-        const keys = new Set<string>([...Object.keys(remoteEnv), ...Object.keys(localEnv)]);
-        for (const key of keys) {
-          const remoteVal = remoteEnv[key];
-          const localVal = localEnv[key];
-          if (options.force) {
-            merged[key] = remoteVal ?? localVal ?? '';
-          } else {
-            merged[key] = localVal ?? remoteVal ?? '';
-          }
-        }
+        // 使用新的合并逻辑，支持配置文件
+        const merged = mergeEnvWithConfig(localEnv, remoteEnv, { 
+          version: 1, 
+          env: {} 
+        }, options.force);
 
         const output = serializeEnv(merged);
+        const { promises: fs } = await import('fs');
         await fs.writeFile(target, output, 'utf8');
 
         console.log(chalk.green(`\n✅ Successfully cloned environment to ${target}`));

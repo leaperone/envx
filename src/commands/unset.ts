@@ -1,6 +1,9 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { spawn } from 'child_process';
+import { join } from 'path';
+import { existsSync } from 'fs';
+import { ConfigManager } from '../utils/config';
 
 type ShellKind = 'sh' | 'cmd' | 'powershell';
 
@@ -9,21 +12,10 @@ interface UnsetOptions {
   shell?: ShellKind;
   apply?: boolean;
   print?: boolean;
+  config?: string;
 }
 
-function parseKeys(content: string): string[] {
-  const keys: string[] = [];
-  const lines = content.split(/\r?\n/);
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const eqIndex = line.indexOf('=');
-    const key = eqIndex === -1 ? line : line.slice(0, eqIndex);
-    const trimmedKey = key.trim();
-    if (trimmedKey) keys.push(trimmedKey);
-  }
-  return keys;
-}
+
 
 function serializeUnset(key: string, shell: ShellKind): string {
   if (shell === 'cmd') return `set ${key}=`;
@@ -50,47 +42,34 @@ function detectInteractiveShellProgram(shell: ShellKind): { program: string; arg
 
 export function unsetCommand(program: Command): void {
   program
-    .command('unset <url>')
-    .description('Fetch keys from URL and unset them (apply or print)')
+    .command('unset')
+    .description('Unset environment variables from envx.config.yaml (apply or print)')
     .option('-s, --shell <shell>', 'Target shell: sh | cmd | powershell')
     .option('--apply', 'Start a new subshell with variables unset (default if no --print)')
     .option('--print', 'Only print commands, do not execute')
     .option('-v, --verbose', 'Verbose output')
-    .action(async (url: string, options: UnsetOptions = {}) => {
+    .option('-c, --config <path>', 'Path to config file (default: ./envx.config.yaml)', './envx.config.yaml')
+    .action(async (options: UnsetOptions = {}) => {
       const shell: ShellKind = (options.shell as ShellKind) || detectDefaultShell();
 
-      console.log(chalk.blue('🧹 Unsetting environment variables from remote...'));
-      console.log(chalk.white(`   URL: ${url}`));
-      console.log(chalk.white(`   Shell: ${shell}`));
+      console.log(chalk.blue('🧹 Unsetting environment variables from config...'));
+      console.log(chalk.white(`   Config file: ${options.config}`));
 
       try {
-        type MinimalResponse = {
-          ok: boolean;
-          status: number;
-          statusText: string;
-          text(): Promise<string>;
-        };
-        type MinimalFetch = (input: string) => Promise<MinimalResponse>;
-        const fetchFn: MinimalFetch | undefined = (
-          globalThis as unknown as { fetch?: MinimalFetch }
-        ).fetch;
-        if (!fetchFn) {
-          console.error(
-            chalk.red('❌ fetch is not available in this Node.js runtime. Please use Node 18+')
-          );
-          process.exitCode = 1;
-          return;
+        // 读取配置文件
+        const configPath = join(process.cwd(), options.config || './envx.config.yaml');
+        
+        if (!existsSync(configPath)) {
+          console.error(chalk.red(`❌ Error: Config file not found at ${options.config || './envx.config.yaml'}`));
+          console.log(chalk.yellow('💡 Tip: Run "envx init" to create a configuration file'));
+          process.exit(1);
         }
 
-        const res = await fetchFn(url);
-        if (!res.ok) {
-          console.error(chalk.red(`❌ Failed to fetch: ${res.status} ${res.statusText}`));
-          process.exitCode = 1;
-          return;
-        }
-
-        const remoteText = await res.text();
-        const keys = parseKeys(remoteText);
+        const configManager = new ConfigManager(configPath);
+        const config = configManager.getConfig();
+        
+        // 从配置中提取环境变量键名
+        const keys = Object.keys(config.env);
 
         // Only print if explicitly requested
         if (options.print) {

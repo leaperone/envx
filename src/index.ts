@@ -7,6 +7,8 @@ import { initCommand } from './commands/init.js';
 import { cloneCommand } from './commands/clone.js';
 import { exportCommand } from './commands/export.js';
 import { unsetCommand } from './commands/unset.js';
+import { delCommand } from './commands/del.js';
+import { setCommand } from './commands/set.js';
 
 const program = new Command();
 
@@ -22,6 +24,8 @@ initCommand(program);
 cloneCommand(program);
 exportCommand(program);
 unsetCommand(program);
+delCommand(program);
+setCommand(program);
 
 // 默认命令
 program

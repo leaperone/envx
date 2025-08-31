@@ -45,11 +45,28 @@ export class ConfigManager {
         minContentWidth: 20,
       });
 
-      writeFileSync(this.configPath, yamlContent, 'utf-8');
+      // 手动处理YAML格式，移除空对象的 {} 括号和null值
+      let processedYaml = yamlContent;
+      
+      // 替换所有的 ": {}" 为 ":"
+      processedYaml = processedYaml.replace(/:\s*\{\s*\}/g, ':');
+      
+      // 替换所有的 ": null" 为 ":"
+      processedYaml = processedYaml.replace(/:\s*null\s*$/gm, ':');
+      
+      // 替换所有的 ": undefined" 为 ":"
+      processedYaml = processedYaml.replace(/:\s*undefined\s*$/gm, ':');
+      
+      // 替换所有的 ": "" 为 ":"
+      processedYaml = processedYaml.replace(/:\s*""\s*$/gm, ':');
+
+      writeFileSync(this.configPath, processedYaml, 'utf-8');
     } catch (error) {
       throw new Error(`保存配置文件失败: ${error instanceof Error ? error.message : '未知错误'}`);
     }
   }
+
+
 
   /**
    * 获取当前配置

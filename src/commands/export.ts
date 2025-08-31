@@ -1,6 +1,10 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { spawn } from 'child_process';
+import { join } from 'path';
+import { existsSync } from 'fs';
+import { ConfigManager } from '../utils/config';
+import { createDatabaseManager } from '../utils/db';
 
 type ShellKind = 'sh' | 'cmd' | 'powershell';
 
@@ -10,29 +14,7 @@ interface ExportOptions {
   apply?: boolean;
   exec?: string;
   print?: boolean;
-}
-
-type EnvMap = Record<string, string>;
-
-function parseEnv(content: string): EnvMap {
-  const env: EnvMap = {};
-  const lines = content.split(/\r?\n/);
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const eqIndex = line.indexOf('=');
-    if (eqIndex === -1) continue;
-    const key = line.slice(0, eqIndex).trim();
-    let value = line.slice(eqIndex + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    env[key] = value;
-  }
-  return env;
+  config?: string;
 }
 
 function serializeLine(key: string, value: string, shell: ShellKind): string {
@@ -63,48 +45,62 @@ function detectInteractiveShellProgram(shell: ShellKind): { program: string; arg
 
 export function exportCommand(program: Command): void {
   program
-    .command('export <url>')
-    .description('Fetch plaintext env from URL and print/apply shell commands (sh|cmd|powershell)')
+    .command('export')
+    .description('Export environment variables from envx.config.yaml and print/apply shell commands (sh|cmd|powershell)')
     .option('-s, --shell <shell>', 'Target shell: sh | cmd | powershell')
     .option('--apply', 'Start a new subshell with variables applied (default if no --print)')
     .option('--exec <command>', 'Run a command with variables applied')
     .option('--print', 'Only print commands, do not execute')
     .option('-v, --verbose', 'Verbose output')
-    .action(async (url: string, options: ExportOptions = {}) => {
+    .option('-c, --config <path>', 'Path to config file (default: ./envx.config.yaml)', './envx.config.yaml')
+    .action(async (options: ExportOptions = {}) => {
       const shell: ShellKind = (options.shell as ShellKind) || detectDefaultShell();
 
-      console.log(chalk.blue('📤 Exporting environment variables from remote...'));
-      console.log(chalk.white(`   URL: ${url}`));
-      console.log(chalk.white(`   Shell: ${shell}`));
+      console.log(chalk.blue('📤 Exporting environment variables from config...'));
+      console.log(chalk.white(`   Config file: ${options.config}`));
 
       try {
-        type MinimalResponse = {
-          ok: boolean;
-          status: number;
-          statusText: string;
-          text(): Promise<string>;
-        };
-        type MinimalFetch = (input: string) => Promise<MinimalResponse>;
-        const fetchFn: MinimalFetch | undefined = (
-          globalThis as unknown as { fetch?: MinimalFetch }
-        ).fetch;
-        if (!fetchFn) {
-          console.error(
-            chalk.red('❌ fetch is not available in this Node.js runtime. Please use Node 18+')
-          );
-          process.exitCode = 1;
-          return;
+        // 读取配置文件
+        const configPath = join(process.cwd(), options.config || './envx.config.yaml');
+        
+        if (!existsSync(configPath)) {
+          console.error(chalk.red(`❌ Error: Config file not found at ${options.config || './envx.config.yaml'}`));
+          console.log(chalk.yellow('💡 Tip: Run "envx init" to create a configuration file'));
+          process.exit(1);
         }
 
-        const res = await fetchFn(url);
-        if (!res.ok) {
-          console.error(chalk.red(`❌ Failed to fetch: ${res.status} ${res.statusText}`));
-          process.exitCode = 1;
-          return;
+        const configManager = new ConfigManager(configPath);
+        const config = configManager.getConfig();
+        
+        // 从数据库获取环境变量的最新值
+        console.log(chalk.blue('🗄️  Fetching latest environment variable values from database...'));
+        const configDir = join(process.cwd(), options.config || './envx.config.yaml', '..');
+        const dbManager = createDatabaseManager(configDir);
+        
+        // 从配置中提取环境变量，优先使用数据库中的最新值
+        const envMap: Record<string, string> = {};
+        for (const [key, value] of Object.entries(config.env)) {
+          let finalValue = '';
+          
+          // 首先尝试从数据库获取最新值
+          const latestRecord = dbManager.getLatestVersion(key);
+          if (latestRecord && latestRecord.action !== 'deleted') {
+            finalValue = latestRecord.value;
+          } else {
+            // 如果数据库中没有记录，使用配置文件中的值
+            if (typeof value === 'string') {
+              finalValue = value;
+            } else if (value && typeof value === 'object' && 'default' in value) {
+              finalValue = (value as any).default || '';
+            }
+          }
+          
+          if (finalValue) {
+            envMap[key] = finalValue;
+          }
         }
-
-        const remoteText = await res.text();
-        const envMap = parseEnv(remoteText);
+        
+        dbManager.close();
 
         // Execute a command with these env vars
         if (options.exec) {
