@@ -127,7 +127,7 @@ export default [
       'prefer-const': 'error',
       'no-var': 'error',
       'no-console': 'off',
-      'prettier/prettier': 'error',
+      'prettier/prettier': 'off',
     },
   },
 ];

@@ -3,6 +3,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { versionCommand } from './commands/version.js';
+import { initCommand } from './commands/init.js';
 import { cloneCommand } from './commands/clone.js';
 import { exportCommand } from './commands/export.js';
 import { unsetCommand } from './commands/unset.js';
@@ -17,6 +18,7 @@ program
 
 // 添加命令
 versionCommand(program);
+initCommand(program);
 cloneCommand(program);
 exportCommand(program);
 unsetCommand(program);
