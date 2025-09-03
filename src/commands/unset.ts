@@ -4,8 +4,8 @@ import { spawn } from 'child_process';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { ConfigManager } from '../utils/config';
-
-type ShellKind = 'sh' | 'cmd' | 'powershell';
+import { ShellKind } from '../types/common';
+import { detectDefaultShell, detectInteractiveShellProgram, serializeUnset } from '../utils/env';
 
 interface UnsetOptions {
   verbose?: boolean;
@@ -13,31 +13,6 @@ interface UnsetOptions {
   apply?: boolean;
   print?: boolean;
   config?: string;
-}
-
-
-
-function serializeUnset(key: string, shell: ShellKind): string {
-  if (shell === 'cmd') return `set ${key}=`;
-  if (shell === 'powershell') return `Remove-Item Env:${key} -ErrorAction SilentlyContinue`;
-  return `unset ${key}`;
-}
-
-function detectDefaultShell(): ShellKind {
-  if (process.platform === 'win32') {
-    return 'powershell';
-  }
-  return 'sh';
-}
-
-function detectInteractiveShellProgram(shell: ShellKind): { program: string; args: string[] } {
-  if (process.platform === 'win32') {
-    if (shell === 'powershell') return { program: 'powershell.exe', args: ['-NoExit'] };
-    if (shell === 'cmd') return { program: 'cmd.exe', args: ['/K'] };
-    return { program: 'powershell.exe', args: ['-NoExit'] };
-  }
-  const userShell = process.env.SHELL || '/bin/sh';
-  return { program: userShell, args: ['-i'] };
 }
 
 export function unsetCommand(program: Command): void {

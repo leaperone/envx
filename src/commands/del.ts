@@ -4,12 +4,17 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { ConfigManager } from '../utils/config';
 import { createDatabaseManager } from '../utils/db';
+import { delEnv, unsetEnv } from '../utils/env';
 
 export function delCommand(program: Command): void {
   program
     .command('del <key>')
     .description('Delete an environment variable from configuration')
-    .option('-c, --config <path>', 'Path to config file (default: ./envx.config.yaml)', './envx.config.yaml')
+    .option(
+      '-c, --config <path>',
+      'Path to config file (default: ./envx.config.yaml)',
+      './envx.config.yaml'
+    )
     .option('--force', 'Force deletion without confirmation')
     .action(async (key: string, options) => {
       try {
@@ -31,8 +36,12 @@ export function delCommand(program: Command): void {
 
         // 检查环境变量是否存在
         if (!(key in config.env)) {
-          console.error(chalk.red(`❌ Error: Environment variable "${key}" not found in configuration`));
-          console.log(chalk.yellow('💡 Tip: Use "envx list" to see available environment variables'));
+          console.error(
+            chalk.red(`❌ Error: Environment variable "${key}" not found in configuration`)
+          );
+          console.log(
+            chalk.yellow('💡 Tip: Use "envx list" to see available environment variables')
+          );
           process.exit(1);
         }
 
@@ -55,9 +64,10 @@ export function delCommand(program: Command): void {
         }
 
         // 获取当前值用于数据库记录
-        const currentValue = typeof config.env[key] === 'string' 
-          ? config.env[key] as string 
-          : (config.env[key] as any)?.default || (config.env[key] as any)?.target || '';
+        const currentValue =
+          typeof config.env[key] === 'string'
+            ? (config.env[key] as string)
+            : (config.env[key] as any)?.default || (config.env[key] as any)?.target || '';
 
         // 从配置中删除环境变量
         const deleted = configManager.deleteEnvVar(key);
@@ -66,6 +76,13 @@ export function delCommand(program: Command): void {
           process.exit(1);
         }
         configManager.save();
+
+        if (config.files) {
+          await delEnv(key, config.files);
+        }
+        // 从当前 shell 环境中取消设置环境变量
+        console.log(chalk.blue('🔄 Unsetting environment variable from current shell...'));
+        await unsetEnv(key);
 
         // 更新数据库
         console.log(chalk.blue('🗄️  Updating database...'));
@@ -89,7 +106,6 @@ export function delCommand(program: Command): void {
         console.log(chalk.gray(`   Previous value: ${currentValue || '(empty)'}`));
         console.log(chalk.gray(`   Config file: ${options.config}`));
         console.log(chalk.gray(`   Database updated`));
-
       } catch (error) {
         console.error(
           chalk.red(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`)

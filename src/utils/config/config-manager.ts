@@ -47,16 +47,16 @@ export class ConfigManager {
 
       // 手动处理YAML格式，移除空对象的 {} 括号和null值
       let processedYaml = yamlContent;
-      
+
       // 替换所有的 ": {}" 为 ":"
       processedYaml = processedYaml.replace(/:\s*\{\s*\}/g, ':');
-      
+
       // 替换所有的 ": null" 为 ":"
       processedYaml = processedYaml.replace(/:\s*null\s*$/gm, ':');
-      
+
       // 替换所有的 ": undefined" 为 ":"
       processedYaml = processedYaml.replace(/:\s*undefined\s*$/gm, ':');
-      
+
       // 替换所有的 ": "" 为 ":"
       processedYaml = processedYaml.replace(/:\s*""\s*$/gm, ':');
 
@@ -65,8 +65,6 @@ export class ConfigManager {
       throw new Error(`保存配置文件失败: ${error instanceof Error ? error.message : '未知错误'}`);
     }
   }
-
-
 
   /**
    * 获取当前配置
@@ -186,13 +184,6 @@ export class ConfigManager {
   }
 
   /**
-   * 获取所有简单环境变量
-   */
-  getAllSimpleEnvVars(): Array<{ key: string; value: string }> {
-    return ConfigParser.getSimpleEnvVars(this.config);
-  }
-
-  /**
    * 验证当前配置
    */
   validate(): ReturnType<typeof ConfigParser.validateConfig> {
@@ -245,5 +236,31 @@ export class ConfigManager {
     }
 
     return envVars;
+  }
+
+  /**
+   * 创建基础配置
+   */
+  createBaseConfig(
+    envVars: Record<string, string>,
+    files: string | string[] = './.env'
+  ): EnvxConfig {
+    if (typeof files === 'string') {
+      files = [files];
+    }
+
+    const config: EnvxConfig = {
+      version: 1,
+      export: false,
+      files: files as string | string[],
+      env: {},
+    };
+
+    // 为每个环境变量创建空的配置项
+    for (const key of Object.keys(envVars)) {
+      config.env[key] = {};
+    }
+
+    return config;
   }
 }

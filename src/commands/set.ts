@@ -8,7 +8,7 @@ import { EnvConfig } from '../types/config';
 import { 
   updateEnvFileWithConfig, 
   validateEnvKey, 
-  getEnvTargetPath,
+  getEnvTargetFiles,
   isEnvRequired 
 } from '../utils/env';
 
@@ -88,14 +88,24 @@ export function setCommand(program: Command): void {
         configManager.save();
 
         // 如果配置中有 clone URL，更新对应的环境变量文件
-        if (config.clone) {
+        if (config.files) {
           console.log(chalk.blue('🔄 Updating environment file based on clone configuration...'));
           try {
-            const targetPath = getEnvTargetPath(key, config) || '.env';
-            await updateEnvFileWithConfig(targetPath, config, options.force);
+            const targetPath = getEnvTargetFiles(key, config) || '.env';
+            if (targetPath && typeof targetPath === 'string') {
+              await updateEnvFileWithConfig(targetPath, { [key]: value }, config, options.force);
+            } else if (targetPath && Array.isArray(targetPath)) {
+              for (const path of targetPath) {
+                await updateEnvFileWithConfig(path, { [key]: value }, config, options.force);
+              }
+            }
             console.log(chalk.green(`✅ Environment file updated: ${targetPath}`));
           } catch (error) {
-            console.warn(chalk.yellow(`⚠️  Warning: Failed to update environment file: ${error instanceof Error ? error.message : String(error)}`));
+            console.warn(
+              chalk.yellow(
+                `⚠️  Warning: Failed to update environment file: ${error instanceof Error ? error.message : String(error)}`
+              )
+            );
           }
         }
 
@@ -140,8 +150,8 @@ export function setCommand(program: Command): void {
           console.log(chalk.yellow(`   Required: Yes`));
         }
         
-        if (config.clone) {
-          console.log(chalk.blue(`   Clone source: ${config.clone}`));
+        if (config.files) {
+          console.log(chalk.blue(`   Clone source: ${config.files}`));
         }
         
         if (config.export !== undefined) {

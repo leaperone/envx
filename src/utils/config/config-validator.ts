@@ -57,7 +57,7 @@ export class ConfigValidator {
     }
 
     // clone 字段验证
-    if (config.clone !== undefined && typeof config.clone !== 'string') {
+    if (config.files !== undefined && typeof config.files !== 'string') {
       errors.push('clone 字段必须是字符串类型');
     }
 
@@ -112,9 +112,17 @@ export class ConfigValidator {
     const warnings: string[] = [];
 
     // 验证全局 clone 路径
-    if (config.clone) {
-      if (!this.isValidPath(config.clone)) {
-        errors.push(`全局 clone 路径 "${config.clone}" 格式不正确`);
+    if (config.files) {
+      if (Array.isArray(config.files)) {
+        for (const p of config.files) {
+          if (!this.isValidPath(p)) {
+            errors.push(`全局 clone 路径 "${p}" 格式不正确`);
+          }
+        }
+      } else {
+        if (!this.isValidPath(config.files)) {
+          errors.push(`全局 clone 路径 "${config.files}" 格式不正确`);
+        }
       }
     }
 
@@ -124,13 +132,25 @@ export class ConfigValidator {
         if (typeof value === 'object' && value !== null) {
           const envConfig = value as EnvConfig;
 
-          if (envConfig.clone) {
-            if (!this.isValidPath(envConfig.clone)) {
-              errors.push(`环境变量 "${key}" 的 clone 路径 "${envConfig.clone}" 格式不正确`);
+          if (envConfig.files) {
+            if (Array.isArray(envConfig.files)) {
+              for (const p of envConfig.files) {
+                if (!this.isValidPath(p)) {
+                  errors.push(`环境变量 "${key}" 的 clone 路径 "${p}" 格式不正确`);
+                }
+              }
+            } else {
+              if (!this.isValidPath(envConfig.files)) {
+                errors.push(`环境变量 "${key}" 的 clone 路径 "${envConfig.files}" 格式不正确`);
+              }
             }
 
-            // 检查路径冲突
-            if (config.clone && envConfig.clone === config.clone) {
+            // 检查路径冲突（仅在全局与局部都为字符串时检查完全相等）
+            if (
+              typeof config.files === 'string' &&
+              typeof envConfig.files === 'string' &&
+              envConfig.files === config.files
+            ) {
               warnings.push(`环境变量 "${key}" 的 clone 路径与全局 clone 路径相同，可能造成冲突`);
             }
           }

@@ -1,64 +1,10 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { ConfigManager } from '../utils/config';
-import { EnvxConfig } from '../types/config';
 import { createDatabaseManager } from '../utils/db';
-
-/**
- * 解析 .env 文件内容
- */
-function parseEnvFile(content: string): Record<string, string> {
-  const envVars: Record<string, string> = {};
-
-  const lines = content.split('\n');
-  for (const line of lines) {
-    const trimmedLine = line.trim();
-
-    // 跳过空行和注释
-    if (!trimmedLine || trimmedLine.startsWith('#')) {
-      continue;
-    }
-
-    // 查找等号分隔符
-    const equalIndex = trimmedLine.indexOf('=');
-    if (equalIndex === -1) {
-      continue;
-    }
-
-    const key = trimmedLine.substring(0, equalIndex).trim();
-    const value = trimmedLine.substring(equalIndex + 1).trim();
-
-    // 移除引号
-    const cleanValue = value.replace(/^["']|["']$/g, '');
-
-    if (key) {
-      envVars[key] = cleanValue;
-    }
-  }
-
-  return envVars;
-}
-
-/**
- * 创建基础配置
- */
-function createBaseConfig(envVars: Record<string, string>): EnvxConfig {
-  const config: EnvxConfig = {
-    version: 1,
-    export: false,
-    clone: './.env',
-    env: {},
-  };
-
-  // 为每个环境变量创建空的配置项
-  for (const key of Object.keys(envVars)) {
-    config.env[key] = {};
-  }
-
-  return config;
-}
+import { readEnvFile } from '../utils/env';
 
 export function initCommand(program: Command): void {
   program
@@ -96,32 +42,21 @@ export function initCommand(program: Command): void {
         }
 
         // 读取 .env 文件
-        const envContent = readFileSync(envFilePath, 'utf-8');
-        const envVars = parseEnvFile(envContent);
+        const envs = await readEnvFile(envFilePath);
 
-        if (Object.keys(envVars).length === 0) {
+        if (Object.keys(envs).length === 0) {
           console.warn(chalk.yellow('⚠️  Warning: No environment variables found in .env file'));
         } else {
-          console.log(chalk.green(`✅ Found ${Object.keys(envVars).length} environment variables`));
+          console.log(chalk.green(`✅ Found ${Object.keys(envs).length} environment variables`));
         }
 
         // 创建基础配置
-        const baseConfig = createBaseConfig(envVars);
+        const configManager = new ConfigManager(configOutputPath);
+        const baseConfig = configManager.createBaseConfig(envs, options.file);
 
         // 保存配置文件
-        const configManager = new ConfigManager(configOutputPath);
         configManager.mergeConfig(baseConfig);
         configManager.save();
-
-        // 手动处理 YAML 格式，移除空对象的 {} 括号
-        const fs = await import('fs');
-        let yamlContent = fs.readFileSync(configOutputPath, 'utf-8');
-
-        // 替换所有的 ": {}" 为 ":"
-        yamlContent = yamlContent.replace(/:\s*\{\s*\}/g, ':');
-
-        // 写回文件
-        fs.writeFileSync(configOutputPath, yamlContent, 'utf-8');
 
         // 初始化数据库并记录初始环境变量
         console.log(chalk.blue('🗄️  Initializing database...'));
@@ -129,9 +64,9 @@ export function initCommand(program: Command): void {
         const dbManager = createDatabaseManager(configDir);
 
         // 记录初始环境变量到数据库
-        const initialRecords = Object.entries(envVars).map(([key, value]) => ({
+        const initialRecords = Object.entries(envs).map(([key, value]) => ({
           key,
-          value,
+          value: value as string,
           timestamp: new Date().toISOString(),
           action: 'created' as const,
           source: 'init',
@@ -148,7 +83,7 @@ export function initCommand(program: Command): void {
         console.log(chalk.blue('\n📋 Configuration summary:'));
         console.log(chalk.gray(`   Version: ${baseConfig.version}`));
         console.log(chalk.gray(`   Export: ${baseConfig.export}`));
-        console.log(chalk.gray(`   Clone path: ${baseConfig.clone}`));
+        console.log(chalk.gray(`   Clone path: ${baseConfig.files}`));
         console.log(chalk.gray(`   Environment variables: ${Object.keys(baseConfig.env).length}`));
         console.log(chalk.gray(`   Database records: ${dbStats.totalRecords}`));
 

@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { parse } from 'yaml';
-import { EnvxConfig, ConfigParseResult, ConfigValidationResult, EnvConfig, EnvTarget } from '.';
+import { EnvxConfig, ConfigParseResult, ConfigValidationResult, EnvConfig } from '.';
 
 export class ConfigParser {
   /**
@@ -81,9 +81,9 @@ export class ConfigParser {
           }
 
           // 验证 clone 路径
-          if (envConfig.clone && typeof envConfig.clone === 'string') {
-            if (!envConfig.clone.startsWith('./') && !envConfig.clone.startsWith('/')) {
-              warnings.push(`环境变量 ${key} 的 clone 路径建议使用相对路径: ${envConfig.clone}`);
+          if (envConfig.files && typeof envConfig.files === 'string') {
+            if (!envConfig.files.startsWith('./') && !envConfig.files.startsWith('/')) {
+              warnings.push(`环境变量 ${key} 的 clone 路径建议使用相对路径: ${envConfig.files}`);
             }
           }
         }
@@ -104,8 +104,18 @@ export class ConfigParser {
     return {
       version: 1,
       export: false,
-      clone: './.env',
+      files: './.env',
       env: {},
+    };
+  }
+
+  static getDefaultEnvConfig(key: string): EnvConfig {
+    return {
+      target: key,
+      files: undefined,
+      default: undefined,
+      description: undefined,
+      required: false,
     };
   }
 
@@ -116,42 +126,7 @@ export class ConfigParser {
     const result: Array<{ key: string; config: EnvConfig }> = [];
 
     for (const [key, value] of Object.entries(config.env)) {
-      if (typeof value === 'object' && value !== null) {
-        result.push({ key, config: value as EnvConfig });
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * 获取简单环境变量（直接赋值的）
-   */
-  static getSimpleEnvVars(config: EnvxConfig): Array<{ key: string; value: string }> {
-    const result: Array<{ key: string; value: string }> = [];
-
-    for (const [key, value] of Object.entries(config.env)) {
-      if (typeof value !== 'object' || value === null) {
-        if (value === undefined) {
-          // 如果值为 undefined，使用 key 作为值
-          result.push({ key, value: key });
-        } else {
-          result.push({ key, value: value as string });
-        }
-      } else {
-        // 处理配置对象
-        const config = value as EnvConfig;
-        if (config.default !== undefined) {
-          // 如果有默认值，使用默认值
-          result.push({ key, value: String(config.default) });
-        } else if (config.target) {
-          // 如果有 target，使用 target
-          result.push({ key, value: config.target });
-        } else {
-          // 如果没有 target 且没有默认值，使用 key 作为值
-          result.push({ key, value: key });
-        }
-      }
+      result.push({ key, config: this.getEnvVar(value as EnvConfig, key) });
     }
 
     return result;
@@ -167,29 +142,30 @@ export class ConfigParser {
   /**
    * 获取环境变量配置
    */
-  static getEnvVar(config: EnvxConfig, key: string): EnvTarget | EnvConfig | undefined {
-    return config.env[key];
+  static getEnvVar(config: EnvConfig, key: string): EnvConfig {
+    if (config === null) {
+      return this.getDefaultEnvConfig(key);
+    }
+    return {
+      target: config.target || key,
+      files: config.files || undefined,
+      default: config.default || undefined,
+      description: config.description || undefined,
+      required: config.required || false,
+    };
   }
 
   /**
    * 获取环境变量的目标源
    */
   static getEnvVarTarget(config: EnvxConfig, key: string): string | undefined {
-    const envVar = config.env[key];
-    if (typeof envVar === 'object' && envVar !== null && 'target' in envVar) {
-      return (envVar as EnvConfig).target;
-    }
-    return undefined;
+    return this.getEnvVar(config.env[key] as EnvConfig, key).target;
   }
 
   /**
    * 获取环境变量的默认值
    */
   static getEnvVarDefault(config: EnvxConfig, key: string): string | undefined {
-    const envVar = config.env[key];
-    if (typeof envVar === 'object' && envVar !== null && 'default' in envVar) {
-      return (envVar as EnvConfig).default;
-    }
-    return undefined;
+    return this.getEnvVar(config.env[key] as EnvConfig, key).default;
   }
 }

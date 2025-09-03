@@ -4,11 +4,13 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { versionCommand } from './commands/version.js';
 import { initCommand } from './commands/init.js';
-import { cloneCommand } from './commands/clone.js';
 import { exportCommand } from './commands/export.js';
 import { unsetCommand } from './commands/unset.js';
 import { delCommand } from './commands/del.js';
 import { setCommand } from './commands/set.js';
+import { historyCommand } from './commands/history.js';
+import { loadCommand } from './commands/load.js';
+import { testCommand } from './commands/test.js';
 
 const program = new Command();
 
@@ -21,11 +23,13 @@ program
 // 添加命令
 versionCommand(program);
 initCommand(program);
-cloneCommand(program);
 exportCommand(program);
 unsetCommand(program);
 delCommand(program);
 setCommand(program);
+historyCommand(program);
+loadCommand(program);
+testCommand(program);
 
 // 默认命令
 program

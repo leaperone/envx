@@ -1,7 +1,7 @@
 export interface EnvxConfig {
   version: number;
   export?: boolean;
-  clone?: string;
+  files?: string | string[] | undefined;
   env: Record<string, EnvTarget | EnvConfig | undefined>;
 }
 
@@ -9,9 +9,9 @@ export type EnvTarget = string;
 
 export interface EnvConfig {
   target?: EnvTarget;
-  clone?: string;
-  default?: string;
-  description?: string;
+  files?: string | string[] | undefined;
+  default?: string | undefined;
+  description?: string | undefined;
   required?: boolean;
 }
 

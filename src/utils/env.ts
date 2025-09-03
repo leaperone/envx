@@ -1,5 +1,7 @@
 import { promises as fs } from 'fs';
 import { EnvxConfig } from '../types/config';
+import { ShellKind } from '../types/common';
+import { spawn } from 'child_process';
 
 export type EnvMap = Record<string, string>;
 
@@ -9,17 +11,17 @@ export type EnvMap = Record<string, string>;
 export function parseEnv(content: string): EnvMap {
   const env: EnvMap = {};
   const lines = content.split(/\r?\n/);
-  
+
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line || line.startsWith('#')) continue;
-    
+
     const eqIndex = line.indexOf('=');
     if (eqIndex === -1) continue;
-    
+
     const key = line.slice(0, eqIndex).trim();
     let value = line.slice(eqIndex + 1).trim();
-    
+
     // 移除引号
     if (
       (value.startsWith('"') && value.endsWith('"')) ||
@@ -27,10 +29,10 @@ export function parseEnv(content: string): EnvMap {
     ) {
       value = value.slice(1, -1);
     }
-    
+
     env[key] = value;
   }
-  
+
   return env;
 }
 
@@ -71,41 +73,21 @@ export async function writeEnvFile(filePath: string, env: EnvMap): Promise<void>
 /**
  * 合并环境变量，支持配置文件的 export 和 clone 设置
  */
-export function mergeEnvWithConfig(
-  localEnv: EnvMap,
-  remoteEnv: EnvMap,
-  config: EnvxConfig,
-  force: boolean = false
-): EnvMap {
+export function mergeEnv(existEnv: EnvMap, newEnv: EnvMap, force: boolean = false): EnvMap {
   const merged: EnvMap = {};
-  const keys = new Set<string>([...Object.keys(localEnv), ...Object.keys(remoteEnv)]);
-  
+  const keys = new Set<string>([...Object.keys(existEnv), ...Object.keys(newEnv)]);
+
   for (const key of keys) {
-    const remoteVal = remoteEnv[key];
-    const localVal = localEnv[key];
-    const envConfig = config.env[key];
-    
-    // 如果配置中指定了 clone 源，优先使用该源
-    if (envConfig && typeof envConfig === 'object' && envConfig.clone) {
-      merged[key] = remoteVal ?? localVal ?? '';
-      continue;
-    }
-    
-    // 根据全局 export 设置决定合并策略
-    if (config.export) {
-      // export 为 true 时，优先使用远程值
-      merged[key] = remoteVal ?? localVal ?? '';
+    const newVal = newEnv[key];
+    const existVal = existEnv[key];
+
+    if (force && newVal !== undefined) {
+      merged[key] = newVal;
     } else {
-      // export 为 false 时，优先使用本地值
-      merged[key] = localVal ?? remoteVal ?? '';
-    }
-    
-    // 如果启用了 force 模式，远程值会覆盖本地值
-    if (force && remoteVal !== undefined) {
-      merged[key] = remoteVal;
+      merged[key] = newVal ?? existVal ?? '';
     }
   }
-  
+
   return merged;
 }
 
@@ -114,28 +96,25 @@ export function mergeEnvWithConfig(
  */
 export async function updateEnvFileWithConfig(
   filePath: string,
+  env: EnvMap,
   config: EnvxConfig,
   force: boolean = false
 ): Promise<void> {
   // 如果配置中没有 clone URL，直接返回
-  if (!config.clone) {
+  if (!config.files) {
     return;
   }
-  
+
   try {
     // 获取远程环境变量
-    const remoteEnv = await fetchRemoteEnv(config.clone);
-    
-    // 读取本地环境变量
     const localEnv = await readEnvFile(filePath);
-    
-    // 合并环境变量
-    const merged = mergeEnvWithConfig(localEnv, remoteEnv, config, force);
-    
+
     // 写入文件
-    await writeEnvFile(filePath, merged);
+    await writeEnvFile(filePath, mergeEnv(localEnv, env, force));
   } catch (error) {
-    throw new Error(`Failed to update env file with config: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Failed to update env file with config: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
 
@@ -149,22 +128,21 @@ export async function fetchRemoteEnv(url: string): Promise<EnvMap> {
     statusText: string;
     text(): Promise<string>;
   };
-  
+
   type MinimalFetch = (input: string) => Promise<MinimalResponse>;
-  
-  const fetchFn: MinimalFetch | undefined = (
-    globalThis as unknown as { fetch?: MinimalFetch }
-  ).fetch;
-  
+
+  const fetchFn: MinimalFetch | undefined = (globalThis as unknown as { fetch?: MinimalFetch })
+    .fetch;
+
   if (!fetchFn) {
     throw new Error('fetch is not available in this Node.js runtime. Please use Node 18+');
   }
-  
+
   const res = await fetchFn(url);
   if (!res.ok) {
     throw new Error(`Failed to fetch: ${res.status} ${res.statusText}`);
   }
-  
+
   const remoteText = await res.text();
   return parseEnv(remoteText);
 }
@@ -180,10 +158,10 @@ export function validateEnvKey(key: string): boolean {
 /**
  * 获取环境变量的目标路径
  */
-export function getEnvTargetPath(key: string, config: EnvxConfig): string | undefined {
+export function getEnvTargetFiles(key: string, config: EnvxConfig): string | string[] | undefined {
   const envConfig = config.env[key];
   if (envConfig && typeof envConfig === 'object') {
-    return envConfig.target;
+    return envConfig.files;
   }
   return undefined;
 }
@@ -197,4 +175,61 @@ export function isEnvRequired(key: string, config: EnvxConfig): boolean {
     return envConfig.required === true;
   }
   return false;
+}
+
+export function serializeUnset(key: string, shell: ShellKind): string {
+  if (shell === 'cmd') return `set ${key}=`;
+  if (shell === 'powershell') return `Remove-Item Env:${key} -ErrorAction SilentlyContinue`;
+  return `unset ${key}`;
+}
+
+export function detectDefaultShell(): ShellKind {
+  if (process.platform === 'win32') {
+    return 'powershell';
+  }
+  return 'sh';
+}
+
+export function detectInteractiveShellProgram(shell: ShellKind): {
+  program: string;
+  args: string[];
+} {
+  if (process.platform === 'win32') {
+    if (shell === 'powershell') return { program: 'powershell.exe', args: ['-NoExit'] };
+    if (shell === 'cmd') return { program: 'cmd.exe', args: ['/K'] };
+    return { program: 'powershell.exe', args: ['-NoExit'] };
+  }
+  const userShell = process.env.SHELL || '/bin/sh';
+  return { program: userShell, args: ['-i'] };
+}
+
+export async function delEnv(key: string, filePath: string | string[]) {
+  if (typeof filePath === 'string') {
+    const env = await readEnvFile(filePath);
+    delete env[key];
+    await writeEnvFile(filePath, env);
+  } else {
+    for (const file of filePath) {
+      const env = await readEnvFile(file);
+      delete env[key];
+      await writeEnvFile(file, env);
+    }
+  }
+}
+
+export async function unsetEnv(key: string) {
+  const shell = detectDefaultShell();
+  const { program, args } = detectInteractiveShellProgram(shell);
+
+  // 构建取消设置环境变量的命令
+  const unsetCommand = serializeUnset(key, shell);
+
+  const child = spawn(program, [...args, '-c', unsetCommand], {
+    stdio: 'inherit',
+    env: { ...process.env },
+  });
+
+  child.on('exit', code => {
+    process.exitCode = code == null ? 0 : code;
+  });
 }
