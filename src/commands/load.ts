@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { ConfigManager } from '../utils/config';
-import { createDatabaseManager } from '../utils/db';
+import { createDatabaseManager, EnvHistoryRecord } from '../utils/db';
 import { EnvConfig } from '../types/config';
 import { updateEnvFileWithConfig, isEnvRequired, getEnvTargetFiles } from '../utils/env';
 
@@ -11,6 +11,7 @@ interface LoadOptions {
   config?: string;
   key?: string;
   version?: number;
+  tag?: string;
   all?: boolean;
   export?: boolean;
   shell?: string;
@@ -28,6 +29,7 @@ export function loadCommand(program: Command): void {
     )
     .option('-k, --key <key>', 'Load specific environment variable by key')
     .option('-v, --version <number>', 'Load specific version of the variable (default: latest)')
+    .option('-t, --tag <tag>', 'Load all environment variables from a specific tag')
     .option('-a, --all', 'Load all environment variables defined in config')
     .option('-e, --export', 'Export variables to shell (print export commands)')
     .option(
@@ -141,6 +143,48 @@ export function loadCommand(program: Command): void {
                 chalk.green(`✅ Found latest version ${latestRecord.version} of "${options.key}"`)
               );
             }
+          } else if (options.tag) {
+            // 加载特定标签的所有变量
+            console.log(chalk.gray(`🔍 Loading all environment variables from tag: ${options.tag}`));
+
+            const tagRecords = dbManager.getHistoryByTag(options.tag);
+            if (tagRecords.length === 0) {
+              console.error(chalk.red(`❌ Error: No records found for tag "${options.tag}"`));
+              process.exit(1);
+            }
+
+            console.log(chalk.gray(`📋 Found ${tagRecords.length} records for tag "${options.tag}"`));
+
+            // 按key分组，只取每个key的最新版本
+            const latestByKey = new Map<string, EnvHistoryRecord>();
+            tagRecords.forEach(record => {
+              const existing = latestByKey.get(record.key);
+              if (!existing || record.version > existing.version) {
+                latestByKey.set(record.key, record);
+              }
+            });
+
+            for (const [key, record] of latestByKey) {
+              const envConfig = configManager.getEnvVar(key);
+              
+              // 检查配置文件中是否存在该key（除非使用--force）
+              if (!envConfig && !options.force) {
+                console.log(chalk.yellow(`⚠️  Skipping ${key} (not in config, use --force to include)`));
+                continue;
+              }
+
+              variables.push({
+                key: record.key,
+                value: record.value,
+                version: record.version,
+                config: envConfig,
+              });
+              console.log(chalk.green(`✅ Loaded ${key} (v${record.version}) from tag "${options.tag}"`));
+            }
+
+            console.log(
+              chalk.green(`✅ Successfully loaded ${variables.length} environment variables from tag "${options.tag}"`)
+            );
           } else if (options.all) {
             // 加载配置文件中定义的所有变量
             console.log(chalk.gray('🔍 Loading all environment variables from config...'));
@@ -174,10 +218,10 @@ export function loadCommand(program: Command): void {
               chalk.green(`✅ Successfully loaded ${variables.length} environment variables`)
             );
           } else {
-            console.error(chalk.red('❌ Error: Please specify either --key <key> or --all'));
+            console.error(chalk.red('❌ Error: Please specify either --key <key>, --tag <tag>, or --all'));
             console.log(
               chalk.yellow(
-                '💡 Tip: Use --key to load a specific variable or --all to load all variables from config'
+                '💡 Tip: Use --key to load a specific variable, --tag to load from a tag, or --all to load all variables from config'
               )
             );
             process.exit(1);
