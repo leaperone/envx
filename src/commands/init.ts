@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import inquirer from 'inquirer';
 import { ConfigManager } from '../utils/config';
 import { createDatabaseManager } from '../utils/db';
 import { readEnvFile } from '../utils/env';
@@ -36,9 +37,24 @@ export function initCommand(program: Command): void {
 
         // 检查输出文件是否已存在
         if (existsSync(configOutputPath) && !options.force) {
-          console.error(chalk.red(`❌ Error: Config file already exists at ${options.output}`));
-          console.log(chalk.yellow('💡 Tip: Use --force flag to overwrite existing file'));
-          process.exit(1);
+          console.warn(chalk.yellow(`⚠️  Warning: Config file already exists at ${options.output}`));
+          
+          // 询问用户是否覆盖
+          const { overwrite } = await inquirer.prompt([
+            {
+              type: 'confirm',
+              name: 'overwrite',
+              message: `Do you want to overwrite the existing config file "${options.output}"?`,
+              default: false
+            }
+          ]);
+
+          if (!overwrite) {
+            console.log(chalk.yellow('❌ Initialization cancelled'));
+            process.exit(0);
+          }
+
+          console.log(chalk.blue(`🔄 Overwriting config file: ${options.output}`));
         }
 
         // 读取 .env 文件
