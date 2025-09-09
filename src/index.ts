@@ -11,6 +11,7 @@ import { setCommand } from './commands/set.js';
 import { historyCommand } from './commands/history.js';
 import { loadCommand } from './commands/load.js';
 import { testCommand } from './commands/test.js';
+import { tagCommand } from './commands/tag.js';
 
 const program = new Command();
 
@@ -30,6 +31,7 @@ setCommand(program);
 historyCommand(program);
 loadCommand(program);
 testCommand(program);
+tagCommand(program);
 
 // 默认命令
 program

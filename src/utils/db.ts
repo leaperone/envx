@@ -10,6 +10,7 @@ export interface EnvHistoryRecord {
   timestamp: string;
   action: 'created' | 'updated' | 'deleted';
   source: string;
+  tag?: string;
 }
 
 export class DatabaseManager {
@@ -41,7 +42,8 @@ export class DatabaseManager {
         version INTEGER NOT NULL,
         timestamp TEXT NOT NULL,
         action TEXT NOT NULL,
-        source TEXT NOT NULL
+        source TEXT NOT NULL,
+        tag TEXT
       )
     `);
 
@@ -51,6 +53,7 @@ export class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_env_history_version ON env_history(version);
       CREATE INDEX IF NOT EXISTS idx_env_history_timestamp ON env_history(timestamp);
       CREATE INDEX IF NOT EXISTS idx_env_history_action ON env_history(action);
+      CREATE INDEX IF NOT EXISTS idx_env_history_tag ON env_history(tag);
     `);
   }
 
@@ -75,11 +78,11 @@ export class DatabaseManager {
     const newVersion = currentVersion + 1;
 
     const stmt = this.db.prepare(`
-      INSERT INTO env_history (key, value, version, timestamp, action, source)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO env_history (key, value, version, timestamp, action, source, tag)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
-    stmt.run(record.key, record.value, newVersion, record.timestamp, record.action, record.source);
+    stmt.run(record.key, record.value, newVersion, record.timestamp, record.action, record.source, record.tag || null);
   }
 
   /**
@@ -87,8 +90,8 @@ export class DatabaseManager {
    */
   addHistoryRecords(records: Omit<EnvHistoryRecord, 'id' | 'version'>[]): void {
     const stmt = this.db.prepare(`
-      INSERT INTO env_history (key, value, version, timestamp, action, source)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO env_history (key, value, version, timestamp, action, source, tag)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
     const transaction = this.db.transaction(() => {
@@ -101,7 +104,8 @@ export class DatabaseManager {
           newVersion,
           record.timestamp,
           record.action,
-          record.source
+          record.source,
+          record.tag || null
         );
       }
     });
@@ -206,6 +210,179 @@ export class DatabaseManager {
       oldestRecord: oldestRecord.timestamp,
       newestRecord: newestRecord.timestamp,
     };
+  }
+
+  /**
+   * 根据tag获取历史记录
+   */
+  getHistoryByTag(tag: string, limit: number = 50): EnvHistoryRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM env_history 
+      WHERE tag = ? 
+      ORDER BY timestamp DESC 
+      LIMIT ?
+    `);
+
+    return stmt.all(tag, limit) as EnvHistoryRecord[];
+  }
+
+  /**
+   * 根据版本号获取历史记录
+   */
+  getHistoryByVersion(version: number, limit: number = 50): EnvHistoryRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM env_history 
+      WHERE version = ? 
+      ORDER BY timestamp DESC 
+      LIMIT ?
+    `);
+
+    return stmt.all(version, limit) as EnvHistoryRecord[];
+  }
+
+  /**
+   * 获取所有可用的版本号
+   */
+  getAllVersions(): number[] {
+    const stmt = this.db.prepare(`
+      SELECT DISTINCT version FROM env_history 
+      ORDER BY version DESC
+    `);
+
+    const results = stmt.all() as { version: number }[];
+    return results.map(r => r.version);
+  }
+
+  /**
+   * 获取版本统计信息
+   */
+  getVersionStats(): Array<{
+    version: number;
+    totalRecords: number;
+    uniqueKeys: number;
+    firstCreated: string | null;
+    lastUpdated: string | null;
+  }> {
+    const stmt = this.db.prepare(`
+      SELECT 
+        version,
+        COUNT(*) as totalRecords,
+        COUNT(DISTINCT key) as uniqueKeys,
+        MIN(timestamp) as firstCreated,
+        MAX(timestamp) as lastUpdated
+      FROM env_history 
+      GROUP BY version 
+      ORDER BY version DESC
+    `);
+
+    return stmt.all() as Array<{
+      version: number;
+      totalRecords: number;
+      uniqueKeys: number;
+      firstCreated: string | null;
+      lastUpdated: string | null;
+    }>;
+  }
+
+  /**
+   * 获取所有标签列表
+   */
+  getAllTags(): string[] {
+    const stmt = this.db.prepare(`
+      SELECT DISTINCT tag FROM env_history 
+      WHERE tag IS NOT NULL 
+      ORDER BY tag ASC
+    `);
+
+    const results = stmt.all() as { tag: string }[];
+    return results.map(r => r.tag);
+  }
+
+  /**
+   * 为指定key创建带标签的新版本
+   */
+  createTaggedVersion(key: string, value: string, tag: string, source: string = 'tag'): void {
+    const currentVersion = this.getCurrentVersion(key);
+    const newVersion = currentVersion + 1;
+
+    const stmt = this.db.prepare(`
+      INSERT INTO env_history (key, value, version, timestamp, action, source, tag)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(key, value, newVersion, new Date().toISOString(), 'updated', source, tag);
+  }
+
+  /**
+   * 获取标签统计信息
+   */
+  getTagStats(tag: string): {
+    totalRecords: number;
+    uniqueKeys: number;
+    firstCreated: string | null;
+    lastUpdated: string | null;
+    variables: Array<{key: string, value: string, version: number}>;
+  } {
+    const totalRecords = this.db.prepare('SELECT COUNT(*) as count FROM env_history WHERE tag = ?').get(tag) as {
+      count: number;
+    };
+    const uniqueKeys = this.db
+      .prepare('SELECT COUNT(DISTINCT key) as count FROM env_history WHERE tag = ?')
+      .get(tag) as { count: number };
+    const firstCreated = this.db
+      .prepare('SELECT MIN(timestamp) as timestamp FROM env_history WHERE tag = ?')
+      .get(tag) as { timestamp: string | null };
+    const lastUpdated = this.db
+      .prepare('SELECT MAX(timestamp) as timestamp FROM env_history WHERE tag = ?')
+      .get(tag) as { timestamp: string | null };
+
+    // 获取该标签下的所有变量
+    const variablesStmt = this.db.prepare(`
+      SELECT key, value, version FROM env_history 
+      WHERE tag = ? 
+      ORDER BY key ASC, version DESC
+    `);
+    const variables = variablesStmt.all(tag) as Array<{key: string, value: string, version: number}>;
+
+    return {
+      totalRecords: totalRecords.count,
+      uniqueKeys: uniqueKeys.count,
+      firstCreated: firstCreated.timestamp,
+      lastUpdated: lastUpdated.timestamp,
+      variables
+    };
+  }
+
+  /**
+   * 获取所有标签的统计信息
+   */
+  getAllTagsStats(): Array<{
+    tag: string;
+    totalRecords: number;
+    uniqueKeys: number;
+    firstCreated: string | null;
+    lastUpdated: string | null;
+  }> {
+    const stmt = this.db.prepare(`
+      SELECT 
+        tag,
+        COUNT(*) as totalRecords,
+        COUNT(DISTINCT key) as uniqueKeys,
+        MIN(timestamp) as firstCreated,
+        MAX(timestamp) as lastUpdated
+      FROM env_history 
+      WHERE tag IS NOT NULL 
+      GROUP BY tag 
+      ORDER BY lastUpdated DESC
+    `);
+
+    return stmt.all() as Array<{
+      tag: string;
+      totalRecords: number;
+      uniqueKeys: number;
+      firstCreated: string | null;
+      lastUpdated: string | null;
+    }>;
   }
 
   /**
