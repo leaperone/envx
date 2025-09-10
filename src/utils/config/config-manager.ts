@@ -1,7 +1,7 @@
-import { writeFileSync, existsSync, mkdirSync } from 'fs';
+import { writeFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
 import { stringify } from 'yaml';
 import { ConfigParser } from './config-parser';
-import { EnvxConfig, EnvConfig, EnvTarget } from '.';
+import { EnvxConfig, EnvConfig, EnvTarget, DevConfig, DevConfigParseResult } from '.';
 
 export class ConfigManager {
   private config: EnvxConfig;
@@ -262,5 +262,54 @@ export class ConfigManager {
     }
 
     return config;
+  }
+
+  /**
+   * 获取 dev 默认配置
+   */
+  getDefaultDevConfig(): DevConfig {
+    return { remote: '' };
+  }
+
+  /**
+   * 读取 dev 配置，默认路径为 .envx/dev.config.yaml
+   * 若文件不存在或内容无效，则回退到默认配置并提供 warning。
+   */
+  getDevConfig(devConfigPath: string = '.envx/dev.config.yaml'): DevConfigParseResult {
+    if (!existsSync(devConfigPath)) {
+      return {
+        config: this.getDefaultDevConfig(),
+        validation: {
+          isValid: true,
+          errors: [],
+          warnings: ['dev config not found, using defaults'],
+        },
+      };
+    }
+
+    try {
+      const content = readFileSync(devConfigPath, 'utf-8');
+      const result = ConfigParser.parseDevFromString(content);
+      if (result.validation.isValid) {
+        return result;
+      }
+      return {
+        config: this.getDefaultDevConfig(),
+        validation: {
+          isValid: true,
+          errors: [],
+          warnings: [...result.validation.warnings, 'invalid dev config, using defaults', ...result.validation.errors],
+        },
+      };
+    } catch (error) {
+      return {
+        config: this.getDefaultDevConfig(),
+        validation: {
+          isValid: true,
+          errors: [],
+          warnings: [`failed to read dev config: ${error instanceof Error ? error.message : 'unknown error'}`, 'using defaults'],
+        },
+      };
+    }
   }
 }

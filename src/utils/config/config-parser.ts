@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { parse } from 'yaml';
-import { EnvxConfig, ConfigParseResult, ConfigValidationResult, EnvConfig } from '.';
+import { EnvxConfig, ConfigParseResult, ConfigValidationResult, EnvConfig, DevConfig, DevConfigParseResult } from '.';
 
 export class ConfigParser {
   /**
@@ -45,6 +45,47 @@ export class ConfigParser {
       };
     }
   }
+
+  /**
+   * 从字符串解析 dev 配置
+   */
+  static parseDevFromString(content: string): DevConfigParseResult {
+    try {
+      const parsed = parse(content) as DevConfig;
+      const validation = this.validateDevConfig(parsed);
+      return { config: parsed, validation };
+    } catch (error) {
+      return {
+        config: { remote: '' },
+        validation: {
+          isValid: false,
+          errors: [`dev 配置文件格式错误: ${error instanceof Error ? error.message : '未知错误'}`],
+          warnings: [],
+        },
+      };
+    }
+  }
+
+  /**
+   * 验证 dev 配置
+   */
+  static validateDevConfig(config: DevConfig): ConfigValidationResult {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    if (!config || typeof config !== 'object') {
+      errors.push('dev 配置缺失或格式错误');
+      return { isValid: false, errors, warnings };
+    }
+
+    if (!config.remote || typeof config.remote !== 'string') {
+      errors.push('缺少必需的 remote 字段');
+    }
+
+    return { isValid: errors.length === 0, errors, warnings };
+  }
+
+  // dev 默认配置不在 parser 层提供，由 manager 层负责
 
   /**
    * 验证配置文件

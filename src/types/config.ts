@@ -30,3 +30,12 @@ export interface ConfigParseResult {
   config: EnvxConfig;
   validation: ConfigValidationResult;
 }
+
+export interface DevConfig {
+  remote: string
+}
+
+export interface DevConfigParseResult {
+  config: DevConfig;
+  validation: ConfigValidationResult;
+}
