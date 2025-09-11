@@ -6,7 +6,7 @@
   "workspaceFolder": "/root/envx",
   "shutdownAction": "stopContainer",
   "remoteUser": "root",
-  "runArgs": [],
+  "runArgs": ["--network=host"],
   "forwardPorts": [],
   "postCreateCommand": "git clone git@github.com:leaperone/envx.git .",
   "postStartCommand": "pnpm install",
