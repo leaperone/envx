@@ -56,7 +56,7 @@ export class ConfigParser {
       return { config: parsed, validation };
     } catch (error) {
       return {
-        config: { remote: '' },
+        config: {},
         validation: {
           isValid: false,
           errors: [`dev 配置文件格式错误: ${error instanceof Error ? error.message : '未知错误'}`],
@@ -76,10 +76,6 @@ export class ConfigParser {
     if (!config || typeof config !== 'object') {
       errors.push('dev 配置缺失或格式错误');
       return { isValid: false, errors, warnings };
-    }
-
-    if (!config.remote || typeof config.remote !== 'string') {
-      errors.push('缺少必需的 remote 字段');
     }
 
     return { isValid: errors.length === 0, errors, warnings };

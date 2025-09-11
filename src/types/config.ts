@@ -32,7 +32,9 @@ export interface ConfigParseResult {
 }
 
 export interface DevConfig {
-  remote: string
+  baseUrl?: string;
+  namespace?: string;
+  project?: string;
 }
 
 export interface DevConfigParseResult {

@@ -4,17 +4,16 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { ConfigManager } from '../utils/config';
 import { createDatabaseManager, EnvHistoryRecord } from '../utils/db';
-import { parseRemoteUrl, buildApiUrl, getRemoteUrlFromConfig, getDefaultRemoteUrl } from '../utils/url';
+import {
+  parseRef,
+  buildPullUrl,
+} from '../utils/url';
 import { updateEnvFileWithConfig, getEnvTargetFiles } from '../utils/env';
 
 interface PullOptions {
   verbose?: boolean;
   config?: string;
   devConfig?: string;
-  remote?: string;
-  namespace?: string;
-  project?: string;
-  tag?: string;
   key?: string;
   load?: boolean;
   export?: boolean;
@@ -37,25 +36,37 @@ interface RemoteEnvRecord {
 
 export function pullCommand(program: Command): void {
   program
-    .command('pull <tag>')
-    .description('Pull environment variables from remote server by tag and update local database')
-    .option('-c, --config <path>', 'Path to config file (default: ./envx.config.yaml)', './envx.config.yaml')
-    .option('-d, --dev-config <path>', 'Path to dev config file (default: .envx/dev.config.yaml)', '.envx/dev.config.yaml')
-    .option('-r, --remote <url>', 'Remote server URL in format <baseurl>/<namespace>/<project> or just base URL')
-    .option('-n, --namespace <name>', 'Namespace for the pull (overrides URL parsing)')
-    .option('-p, --project <name>', 'Project name for the pull (overrides URL parsing)')
+    .command('pull <ref>')
+    .description(
+      'Pull env vars by tag (ref can be <tag> | <ns>/<project>:<tag> | <baseurl>/<ns>/<project>:<tag>) and update local DB'
+    )
+    .option(
+      '-c, --config <path>',
+      'Path to config file (default: ./envx.config.yaml)',
+      './envx.config.yaml'
+    )
+    .option(
+      '-d, --dev-config <path>',
+      'Path to dev config file (default: .envx/dev.config.yaml)',
+      '.envx/dev.config.yaml'
+    )
     .option('-k, --key <key>', 'Pull specific environment variable by key')
     .option('--load', 'Automatically load pulled variables (default: true)')
     .option('-e, --export', 'Export variables to shell (print export commands)')
-    .option('-s, --shell <shell>', 'Target shell for export: sh | bash | zsh | fish | cmd | powershell')
+    .option(
+      '-s, --shell <shell>',
+      'Target shell for export: sh | bash | zsh | fish | cmd | powershell'
+    )
     .option('--force', 'Force pull and load even if variable not in config')
     .option('-v, --verbose', 'Verbose output')
-    .action(async (tag: string, options: PullOptions = {}) => {
+    .action(async (ref: string, options: PullOptions = {}) => {
       try {
         const configPath = join(process.cwd(), options.config || './envx.config.yaml');
         const devConfigPath = join(process.cwd(), options.devConfig || '.envx/dev.config.yaml');
 
-        console.log(chalk.blue(`📥 Pulling environment variables from remote server (tag: ${tag})...`));
+        console.log(
+          chalk.blue(`📥 Pulling environment variables from remote server (ref: ${ref})...`)
+        );
         console.log(chalk.gray(`📁 Config file: ${options.config}`));
         console.log(chalk.gray(`📁 Dev config file: ${options.devConfig}`));
 
@@ -71,31 +82,20 @@ export function pullCommand(program: Command): void {
         const devConfigResult = configManager.getDevConfig(devConfigPath);
 
         // 解析远程服务器 URL 和参数
-        let parsedUrl;
+        const parsedUrl = parseRef(ref, {
+          baseUrl: devConfigResult.config.baseUrl,
+          namespace: devConfigResult.config.namespace,
+          project: devConfigResult.config.project,
+        });
 
-        if (options.remote) {
-          parsedUrl = parseRemoteUrl(options.remote, {
-            namespace: options.namespace || undefined,
-            project: options.project || undefined
-          });
-        } else {
-          // 尝试从配置文件获取，如果没有则使用默认 base URL
-          parsedUrl = getRemoteUrlFromConfig(devConfigResult.config.remote, {
-            namespace: options.namespace || undefined,
-            project: options.project || undefined
-          }) || getDefaultRemoteUrl({
-            namespace: options.namespace || undefined,
-            project: options.project || undefined
-          });
-        }
-
-        // 构建 API URL
-        const apiUrl = buildApiUrl(parsedUrl);
+        // 构建 API URL (pull endpoint)
+        const apiUrl = buildPullUrl(parsedUrl);
         console.log(chalk.gray(`🌐 Remote URL: ${apiUrl}`));
 
         // 构建查询参数
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const searchParams = new (globalThis as any).URLSearchParams();
+        const tag = parsedUrl.tag || ref;
         searchParams.set('tag', tag);
         if (options.key) {
           searchParams.set('key', options.key);
@@ -106,7 +106,7 @@ export function pullCommand(program: Command): void {
 
         // 发送 HTTP 请求
         console.log(chalk.blue('📤 Fetching data from remote server...'));
-        
+
         type MinimalResponse = {
           ok: boolean;
           status: number;
@@ -121,21 +121,22 @@ export function pullCommand(program: Command): void {
 
         type MinimalFetch = (input: string, init?: MinimalRequestInit) => Promise<MinimalResponse>;
 
-        const fetchFn: MinimalFetch | undefined = (globalThis as unknown as { fetch?: MinimalFetch })
-          .fetch;
+        const fetchFn: MinimalFetch | undefined = (
+          globalThis as unknown as { fetch?: MinimalFetch }
+        ).fetch;
 
         if (!fetchFn) {
           throw new Error('fetch is not available in this Node.js runtime. Please use Node 18+');
         }
-        
+
         const response = await fetchFn(fullUrl, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
-          }
+          },
         });
 
-        const responseData = await response.json() as {
+        const responseData = (await response.json()) as {
           code: number;
           msg: string;
           data: RemoteEnvRecord[];
@@ -162,22 +163,24 @@ export function pullCommand(program: Command): void {
         }
 
         const remoteRecords = responseData.data || [];
-        
+
         if (remoteRecords.length === 0) {
           console.log(chalk.yellow('📭 No environment variables found on remote server'));
           return;
         }
 
-        console.log(chalk.green(`✅ Successfully pulled ${remoteRecords.length} records from remote server`));
+        console.log(
+          chalk.green(`✅ Successfully pulled ${remoteRecords.length} records from remote server`)
+        );
 
         // 获取数据库管理器
-        const configDir = join(process.cwd(), (options.config || './envx.config.yaml'), '..');
+        const configDir = join(process.cwd(), options.config || './envx.config.yaml', '..');
         const dbManager = createDatabaseManager(configDir);
 
         try {
           // 将远程数据保存到本地数据库
           console.log(chalk.blue('💾 Saving records to local database...'));
-          
+
           let savedCount = 0;
           const savedRecords: Array<{
             key: string;
@@ -190,10 +193,12 @@ export function pullCommand(program: Command): void {
             // 检查本地是否已有相同版本
             const existingRecords = dbManager.getHistoryByKey(record.key);
             const existingVersion = existingRecords.find(r => r.version === record.version);
-            
+
             if (existingVersion) {
               if (options.verbose) {
-                console.log(chalk.gray(`   ⚠️  Skipping ${record.key} v${record.version} (already exists)`));
+                console.log(
+                  chalk.gray(`   ⚠️  Skipping ${record.key} v${record.version} (already exists)`)
+                );
               }
               continue;
             }
@@ -205,7 +210,7 @@ export function pullCommand(program: Command): void {
               timestamp: record.timestamp,
               action: 'updated',
               source: 'pull',
-              ...(record.tag && { tag: record.tag })
+              ...(record.tag && { tag: record.tag }),
             };
             dbManager.addHistoryRecord(historyRecord);
 
@@ -214,7 +219,7 @@ export function pullCommand(program: Command): void {
               key: record.key,
               value: record.value,
               version: record.version,
-              ...(record.tag && { tag: record.tag })
+              ...(record.tag && { tag: record.tag }),
             });
 
             if (options.verbose) {
@@ -222,27 +227,31 @@ export function pullCommand(program: Command): void {
             }
           }
 
-          console.log(chalk.green(`✅ Successfully saved ${savedCount} new records to local database`));
+          console.log(
+            chalk.green(`✅ Successfully saved ${savedCount} new records to local database`)
+          );
 
           // 显示拉取的变量信息
           if (savedRecords.length > 0) {
             console.log(chalk.blue('\n📋 Pulled variables:'));
             savedRecords.forEach(record => {
               const tagInfo = record.tag ? ` (tag: ${record.tag})` : '';
-              console.log(chalk.gray(`   ${record.key} = ${record.value} (v${record.version})${tagInfo}`));
+              console.log(
+                chalk.gray(`   ${record.key} = ${record.value} (v${record.version})${tagInfo}`)
+              );
             });
           }
 
           // 如果启用了 load 选项，执行 load 操作
           if (options.load !== false && savedRecords.length > 0) {
             console.log(chalk.blue('\n🔄 Loading pulled variables...'));
-            
+
             const config = configManager.getConfig();
             const variables = savedRecords.map(record => ({
               key: record.key,
               value: record.value,
               version: record.version,
-              config: configManager.getEnvVar(record.key)
+              config: configManager.getEnvVar(record.key),
             }));
 
             if (options.export) {
@@ -271,8 +280,10 @@ export function pullCommand(program: Command): void {
                 console.log(chalk.blue('🔄 Updating environment files...'));
                 try {
                   for (const variable of variables) {
-                    const targetPath = getEnvTargetFiles(variable.key, config) || configManager.getConfigOption('files');
-                    
+                    const targetPath =
+                      getEnvTargetFiles(variable.key, config) ||
+                      configManager.getConfigOption('files');
+
                     if (targetPath && typeof targetPath === 'string') {
                       await updateEnvFileWithConfig(
                         targetPath,
@@ -312,15 +323,13 @@ export function pullCommand(program: Command): void {
           console.log(chalk.gray(`   Records pulled: ${remoteRecords.length}`));
           console.log(chalk.gray(`   New records saved: ${savedCount}`));
           console.log(chalk.gray(`   Remote URL: ${apiUrl}`));
-          
+
           if (options.load !== false) {
             console.log(chalk.gray(`   Auto-load: enabled`));
           }
-
         } finally {
           dbManager.close();
         }
-
       } catch (error) {
         console.error(
           chalk.red(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`)

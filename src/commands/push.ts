@@ -4,33 +4,27 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { ConfigManager } from '../utils/config';
 import { createDatabaseManager } from '../utils/db';
-import { parseRemoteUrl, buildApiUrl, getRemoteUrlFromConfig, getDefaultRemoteUrl } from '../utils/url';
+import { parseRef, buildApiUrl } from '../utils/url';
 
 interface PushOptions {
   verbose?: boolean;
   config?: string;
   devConfig?: string;
-  remote?: string;
-  namespace?: string;
-  project?: string;
 }
 
 export function pushCommand(program: Command): void {
   program
-    .command('push <tag>')
-    .description('Push environment variables with a specific tag to remote server')
+    .command('push <ref>')
+    .description('Push environment variables to remote server (ref can be <tag> | <ns>/<project>:<tag> | <baseurl>/<ns>/<project>:<tag>)')
     .option('-c, --config <path>', 'Path to config file (default: ./envx.config.yaml)', './envx.config.yaml')
     .option('-d, --dev-config <path>', 'Path to dev config file (default: .envx/dev.config.yaml)', '.envx/dev.config.yaml')
-    .option('-r, --remote <url>', 'Remote server URL in format <baseurl>/<namespace>/<project>:<tag> or just base URL')
-    .option('-n, --namespace <name>', 'Namespace for the push (overrides URL parsing)')
-    .option('-p, --project <name>', 'Project name for the push (overrides URL parsing)')
     .option('-v, --verbose', 'Verbose output')
-    .action(async (tag: string, options: PushOptions = {}) => {
+    .action(async (ref: string, options: PushOptions = {}) => {
       try {
         const configPath = join(process.cwd(), options.config || './envx.config.yaml');
         const devConfigPath = join(process.cwd(), options.devConfig || '.envx/dev.config.yaml');
 
-        console.log(chalk.blue(`🚀 Pushing tag: ${tag}`));
+        console.log(chalk.blue(`🚀 Pushing ref: ${ref}`));
         console.log(chalk.gray(`📁 Config file: ${options.config}`));
         console.log(chalk.gray(`📁 Dev config file: ${options.devConfig}`));
 
@@ -46,28 +40,19 @@ export function pushCommand(program: Command): void {
         const devConfigResult = configManager.getDevConfig(devConfigPath);
 
         // 解析远程服务器 URL 和参数
-        let parsedUrl;
-
-        if (options.remote) {
-          parsedUrl = parseRemoteUrl(options.remote, {
-            namespace: options.namespace || undefined,
-            project: options.project || undefined
-          });
-        } else {
-          // 尝试从配置文件获取，如果没有则使用默认 base URL
-          parsedUrl = getRemoteUrlFromConfig(devConfigResult.config.remote, {
-            namespace: options.namespace || undefined,
-            project: options.project || undefined
-          }) || getDefaultRemoteUrl({
-            namespace: options.namespace || undefined,
-            project: options.project || undefined
-          });
-        }
+        const parsedUrl = parseRef(ref, {
+          baseUrl: devConfigResult.config.baseUrl,
+          namespace: devConfigResult.config.namespace,
+          project: devConfigResult.config.project,
+        });
 
         // 构建完整的 API URL
         const remoteUrl = buildApiUrl(parsedUrl);
 
         console.log(chalk.gray(`🌐 Remote URL: ${remoteUrl}`));
+
+        // 解析 tag
+        const tag = parsedUrl.tag || ref;
 
         // 获取数据库管理器
         const configDir = join(process.cwd(), (options.config || './envx.config.yaml'), '..');

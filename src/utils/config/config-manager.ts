@@ -268,7 +268,7 @@ export class ConfigManager {
    * 获取 dev 默认配置
    */
   getDefaultDevConfig(): DevConfig {
-    return { remote: '' };
+    return {};
   }
 
   /**
