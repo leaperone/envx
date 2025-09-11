@@ -33,13 +33,13 @@ export class DatabaseManager {
    * 初始化数据库表结构
    */
   private initDatabase(): void {
-    // 创建环境变量历史记录表
+    // 创建环境变量历史记录表（version 允许为 NULL，用于 tag 记录）
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS env_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         key TEXT NOT NULL,
         value TEXT NOT NULL,
-        version INTEGER NOT NULL,
+        version INTEGER,
         timestamp TEXT NOT NULL,
         action TEXT NOT NULL,
         source TEXT NOT NULL,
@@ -55,6 +55,42 @@ export class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_env_history_action ON env_history(action);
       CREATE INDEX IF NOT EXISTS idx_env_history_tag ON env_history(tag);
     `);
+
+    // 若旧表中 version 为 NOT NULL，执行迁移以允许 NULL
+    const columns = this.db.prepare(`PRAGMA table_info(env_history)`).all() as Array<{
+      cid: number; name: string; type: string; notnull: number; dflt_value: unknown; pk: number;
+    }>;
+    const versionCol = columns.find(c => c.name === 'version');
+    if (versionCol && versionCol.notnull === 1) {
+      const migrate = this.db.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS env_history_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            version INTEGER,
+            timestamp TEXT NOT NULL,
+            action TEXT NOT NULL,
+            source TEXT NOT NULL,
+            tag TEXT
+          );
+        `);
+        this.db.exec(`
+          INSERT INTO env_history_new (id, key, value, version, timestamp, action, source, tag)
+          SELECT id, key, value, version, timestamp, action, source, tag FROM env_history;
+        `);
+        this.db.exec(`DROP TABLE env_history;`);
+        this.db.exec(`ALTER TABLE env_history_new RENAME TO env_history;`);
+        this.db.exec(`
+          CREATE INDEX IF NOT EXISTS idx_env_history_key ON env_history(key);
+          CREATE INDEX IF NOT EXISTS idx_env_history_version ON env_history(version);
+          CREATE INDEX IF NOT EXISTS idx_env_history_timestamp ON env_history(timestamp);
+          CREATE INDEX IF NOT EXISTS idx_env_history_action ON env_history(action);
+          CREATE INDEX IF NOT EXISTS idx_env_history_tag ON env_history(tag);
+        `);
+      });
+      migrate();
+    }
   }
 
   /**
@@ -62,7 +98,7 @@ export class DatabaseManager {
    */
   private getCurrentVersion(key: string): number {
     const stmt = this.db.prepare(`
-      SELECT MAX(version) as maxVersion FROM env_history WHERE key = ?
+      SELECT MAX(version) as maxVersion FROM env_history WHERE key = ? AND version IS NOT NULL
     `);
 
     const result = stmt.get(key) as { maxVersion: number | null };
@@ -144,9 +180,10 @@ export class DatabaseManager {
    * 获取环境变量的最新版本
    */
   getLatestVersion(key: string): EnvHistoryRecord | null {
+    // 仅返回有版本号的最新记录
     const stmt = this.db.prepare(`
       SELECT * FROM env_history 
-      WHERE key = ? 
+      WHERE key = ? AND version IS NOT NULL
       ORDER BY version DESC 
       LIMIT 1
     `);
@@ -246,6 +283,7 @@ export class DatabaseManager {
   getAllVersions(): number[] {
     const stmt = this.db.prepare(`
       SELECT DISTINCT version FROM env_history 
+      WHERE version IS NOT NULL
       ORDER BY version DESC
     `);
 
@@ -271,6 +309,7 @@ export class DatabaseManager {
         MIN(timestamp) as firstCreated,
         MAX(timestamp) as lastUpdated
       FROM env_history 
+      WHERE version IS NOT NULL
       GROUP BY version 
       ORDER BY version DESC
     `);
@@ -302,15 +341,54 @@ export class DatabaseManager {
    * 为指定key创建带标签的新版本
    */
   createTaggedVersion(key: string, value: string, tag: string, source: string = 'tag'): void {
-    const currentVersion = this.getCurrentVersion(key);
-    const newVersion = currentVersion + 1;
-
+    // 为 tag 记录写入 NULL 版本号
     const stmt = this.db.prepare(`
       INSERT INTO env_history (key, value, version, timestamp, action, source, tag)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, NULL, ?, ?, ?, ?)
     `);
 
-    stmt.run(key, value, newVersion, new Date().toISOString(), 'updated', source, tag);
+    stmt.run(key, value, new Date().toISOString(), 'updated', source, tag);
+  }
+
+  /**
+   * 覆盖更新：按 tag 覆盖该 key 的 tagged 记录（version 为 NULL）。若不存在则创建一条 tagged 记录。
+   */
+  upsertTaggedValue(key: string, value: string, tag: string, source: string = 'pull'): void {
+    const now = new Date().toISOString();
+    const updateStmt = this.db.prepare(`
+      UPDATE env_history
+      SET value = ?, timestamp = ?, action = 'updated', source = ?
+      WHERE key = ? AND tag = ?
+    `);
+    const res = updateStmt.run(value, now, source, key, tag);
+    if (res.changes === 0) {
+      this.createTaggedVersion(key, value, tag, source);
+    }
+  }
+
+  /**
+   * 覆盖更新：覆盖该 key 最新的有版本记录的值。若不存在任何有版本记录，则新增一条有版本记录。
+   */
+  upsertLatestVersionedValue(key: string, value: string, source: string = 'pull'): void {
+    const now = new Date().toISOString();
+    const latest = this.getLatestVersion(key);
+    if (latest) {
+      const updateStmt = this.db.prepare(`
+        UPDATE env_history
+        SET value = ?, timestamp = ?, action = 'updated', source = ?
+        WHERE id = ?
+      `);
+      updateStmt.run(value, now, source, latest.id);
+    } else {
+      const record: Omit<EnvHistoryRecord, 'id' | 'version'> = {
+        key,
+        value,
+        timestamp: now,
+        action: 'updated',
+        source,
+      };
+      this.addHistoryRecord(record);
+    }
   }
 
   /**

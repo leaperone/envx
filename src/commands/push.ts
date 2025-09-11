@@ -87,12 +87,9 @@ export function pushCommand(program: Command): void {
         // 获取当前时间戳
         const timestamp = new Date().toISOString();
         
-        // 计算版本号（使用标签下变量的最大版本号）
-        const maxVersion = Math.max(...tagStats.variables.map(v => v.version));
-
+        // 构建无版本号的 payload（服务端不再需要 version）
         const payload = {
           tag,
-          version: maxVersion,
           timestamp,
           items
         };
@@ -159,7 +156,7 @@ export function pushCommand(program: Command): void {
           console.log(chalk.gray(`   Tag: ${tag}`));
           console.log(chalk.gray(`   Namespace: ${parsedUrl.namespace}`));
           console.log(chalk.gray(`   Project: ${parsedUrl.project}`));
-          console.log(chalk.gray(`   Version: ${maxVersion}`));
+          // 不再显示 Version
           console.log(chalk.gray(`   Variables pushed: ${items.length}`));
           console.log(chalk.gray(`   Remote URL: ${remoteUrl}`));
 

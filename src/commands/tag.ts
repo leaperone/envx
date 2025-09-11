@@ -7,7 +7,8 @@ import { ConfigManager } from '../utils/config';
 import { createDatabaseManager } from '../utils/db';
 import { 
   updateEnvFileWithConfig, 
-  getEnvTargetFiles
+  getEnvTargetFiles,
+  readEnvFile
 } from '../utils/env';
 
 interface TagOptions {
@@ -91,26 +92,49 @@ export function tagCommand(program: Command): void {
 
         // 为每个环境变量创建带标签的新版本
         let taggedCount = 0;
-        const taggedVars: Array<{key: string, value: string, version: number}> = [];
+        const taggedVars: Array<{key: string, value: string}> = [];
 
-        for (const { key, config: envConfig } of envConfigs) {
-          const value = typeof envConfig === 'string' 
-            ? envConfig 
-            : envConfig?.default || envConfig?.target || '';
+        // 读取可能的本地 .env 文件（用于无历史值时兜底）
+        const configuredFiles = config.files
+          ? (Array.isArray(config.files) ? config.files : [config.files])
+          : [];
+        const envFileCache: Record<string, Record<string, string>> = {};
 
-          if (value) {
-            // 获取当前版本号
-            const currentVersion = dbManager.getLatestVersion(key);
-            const newVersion = currentVersion ? currentVersion.version + 1 : 1;
+        for (const { key } of envConfigs) {
+          // 1) 优先使用数据库中的最新值
+          const latest = dbManager.getLatestVersion(key);
+          let value: string | undefined = latest?.value;
 
-            // 创建带标签的版本
-            dbManager.createTaggedVersion(key, value, trimmedTagname, 'tag');
-            taggedCount++;
-            taggedVars.push({ key, value, version: newVersion });
-
-            if (options.verbose) {
-              console.log(chalk.gray(`   ✓ Tagged: ${key} = ${value} (v${newVersion})`));
+          // 2) 若数据库无记录，则尝试从配置的 .env 文件中读取
+          if (value == null || value === '') {
+            for (const file of configuredFiles) {
+              const abs = join(process.cwd(), file);
+              if (!envFileCache[abs]) {
+                envFileCache[abs] = await readEnvFile(abs);
+              }
+              const v = envFileCache[abs]?.[key];
+              if (v != null && v !== '') {
+                value = v;
+                break;
+              }
             }
+          }
+
+          // 3) 没有拿到有效值则跳过
+          if (value == null || value === '') {
+            if (options.verbose) {
+              console.log(chalk.gray(`   • Skip: ${key} has no value in db or env files`));
+            }
+            continue;
+          }
+
+          // 创建带标签的版本（复制一条记录作为该 tag）
+          dbManager.createTaggedVersion(key, value, trimmedTagname, 'tag');
+          taggedCount++;
+          taggedVars.push({ key, value });
+
+          if (options.verbose) {
+            console.log(chalk.gray(`   ✓ Tagged: ${key} = ${value}`));
           }
         }
 
@@ -153,8 +177,8 @@ export function tagCommand(program: Command): void {
 
         if (taggedCount > 0) {
           console.log(chalk.blue('\n📝 Tagged variables:'));
-          taggedVars.forEach(({ key, value, version }) => {
-            console.log(chalk.gray(`   ${key} = ${value} (v${version})`));
+          taggedVars.forEach(({ key, value }) => {
+            console.log(chalk.gray(`   ${key} = ${value}`));
           });
         }
 

@@ -111,7 +111,7 @@ export function buildApiUrl(parsedUrl: ParsedUrl): string {
 
 export function buildPullUrl(parsedUrl: ParsedUrl): string {
   const baseUrl = parsedUrl.baseUrl.replace(/\/$/, '');
-  return `${baseUrl}/api/v1/envx/${parsedUrl.namespace}/${parsedUrl.project}`;
+  return `${baseUrl}/api/v1/envx/${parsedUrl.namespace}/${parsedUrl.project}/pull`;
 }
 
 /**

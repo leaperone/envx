@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { ConfigManager } from '../utils/config';
-import { createDatabaseManager, EnvHistoryRecord } from '../utils/db';
+import { createDatabaseManager } from '../utils/db';
 import {
   parseRef,
   buildPullUrl,
@@ -15,7 +15,7 @@ interface PullOptions {
   config?: string;
   devConfig?: string;
   key?: string;
-  load?: boolean;
+  notLoad?: boolean;
   export?: boolean;
   shell?: string;
   force?: boolean;
@@ -27,7 +27,7 @@ interface RemoteEnvRecord {
   project: string;
   key: string;
   value: string;
-  version: number;
+  version?: number | null;
   timestamp: string;
   action: string;
   source: string;
@@ -51,7 +51,7 @@ export function pullCommand(program: Command): void {
       '.envx/dev.config.yaml'
     )
     .option('-k, --key <key>', 'Pull specific environment variable by key')
-    .option('--load', 'Automatically load pulled variables (default: true)')
+    .option('--not-load', 'Do not load pulled variables into current env')
     .option('-e, --export', 'Export variables to shell (print export commands)')
     .option(
       '-s, --shell <shell>',
@@ -185,45 +185,26 @@ export function pullCommand(program: Command): void {
           const savedRecords: Array<{
             key: string;
             value: string;
-            version: number;
             tag?: string;
           }> = [];
 
           for (const record of remoteRecords) {
-            // 检查本地是否已有相同版本
-            const existingRecords = dbManager.getHistoryByKey(record.key);
-            const existingVersion = existingRecords.find(r => r.version === record.version);
-
-            if (existingVersion) {
-              if (options.verbose) {
-                console.log(
-                  chalk.gray(`   ⚠️  Skipping ${record.key} v${record.version} (already exists)`)
-                );
-              }
-              continue;
+            // 覆盖更新：tag 记录按 tag 覆盖；非 tag 覆盖最新版本记录
+            if (record.tag) {
+              dbManager.upsertTaggedValue(record.key, record.value, record.tag, 'pull');
+            } else {
+              dbManager.upsertLatestVersionedValue(record.key, record.value, 'pull');
             }
-
-            // 保存到数据库
-            const historyRecord: Omit<EnvHistoryRecord, 'id' | 'version'> = {
-              key: record.key,
-              value: record.value,
-              timestamp: record.timestamp,
-              action: 'updated',
-              source: 'pull',
-              ...(record.tag && { tag: record.tag }),
-            };
-            dbManager.addHistoryRecord(historyRecord);
 
             savedCount++;
             savedRecords.push({
               key: record.key,
               value: record.value,
-              version: record.version,
               ...(record.tag && { tag: record.tag }),
             });
 
             if (options.verbose) {
-              console.log(chalk.green(`   ✅ Saved ${record.key} v${record.version}`));
+              console.log(chalk.green(`   ✅ Saved ${record.key}${record.tag ? ` (tag: ${record.tag})` : ''}`));
             }
           }
 
@@ -236,23 +217,37 @@ export function pullCommand(program: Command): void {
             console.log(chalk.blue('\n📋 Pulled variables:'));
             savedRecords.forEach(record => {
               const tagInfo = record.tag ? ` (tag: ${record.tag})` : '';
-              console.log(
-                chalk.gray(`   ${record.key} = ${record.value} (v${record.version})${tagInfo}`)
-              );
+              console.log(chalk.gray(`   ${record.key} = ${record.value}${tagInfo}`));
             });
           }
 
-          // 如果启用了 load 选项，执行 load 操作
-          if (options.load !== false && savedRecords.length > 0) {
+          // 默认加载；传入 --not-load 时不加载
+          if (!options.notLoad && savedRecords.length > 0) {
             console.log(chalk.blue('\n🔄 Loading pulled variables...'));
 
             const config = configManager.getConfig();
-            const variables = savedRecords.map(record => ({
+            // 先构建候选变量列表
+            const candidateVariables = savedRecords.map(record => ({
               key: record.key,
               value: record.value,
-              version: record.version,
+              inConfig: configManager.hasEnvVar(record.key),
               config: configManager.getEnvVar(record.key),
             }));
+
+            // 与 load.ts 一致：默认仅加载配置中存在的变量；使用 --force 时不过滤
+            const variables = candidateVariables
+              .filter(v => options.force || v.inConfig)
+              .map(v => ({ key: v.key, value: v.value, config: v.config }));
+
+            // 提示被跳过的变量
+            if (!options.force) {
+              const skipped = candidateVariables.filter(v => !v.inConfig);
+              skipped.forEach(v =>
+                console.log(
+                  chalk.yellow(`⚠️  Skipping ${v.key} (not in config, use --force to include)`) 
+                )
+              );
+            }
 
             if (options.export) {
               // 导出模式：打印shell命令
@@ -324,9 +319,7 @@ export function pullCommand(program: Command): void {
           console.log(chalk.gray(`   New records saved: ${savedCount}`));
           console.log(chalk.gray(`   Remote URL: ${apiUrl}`));
 
-          if (options.load !== false) {
-            console.log(chalk.gray(`   Auto-load: enabled`));
-          }
+          console.log(chalk.gray(`   Auto-load: ${!options.notLoad ? 'enabled' : 'disabled'}`));
         } finally {
           dbManager.close();
         }
