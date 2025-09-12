@@ -4,7 +4,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { ConfigManager } from '../utils/config';
 import { createDatabaseManager } from '../utils/db';
-import { parseRef, buildApiUrl } from '../utils/url';
+import { parseRef, buildPushUrl } from '../utils/url';
 
 interface PushOptions {
   verbose?: boolean;
@@ -47,7 +47,7 @@ export function pushCommand(program: Command): void {
         });
 
         // 构建完整的 API URL
-        const remoteUrl = buildApiUrl(parsedUrl);
+        const remoteUrl = buildPushUrl(parsedUrl);
 
         console.log(chalk.gray(`🌐 Remote URL: ${remoteUrl}`));
 

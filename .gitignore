@@ -95,3 +95,5 @@ temp/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+envx.config.yaml

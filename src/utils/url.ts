@@ -87,6 +87,22 @@ export function parseRef(ref: string, options: UrlParseOptions = {}): ParsedUrl 
     }
   }
 
+  // 从环境变量中获取缺失的配置项
+  if (!baseUrl) {
+    baseUrl = process.env.ENVX_BASEURL;
+  }
+  if (!namespace) {
+    namespace = process.env.ENVX_NAMESPACE;
+  }
+  if (!project) {
+    project = process.env.ENVX_PROJECT;
+  }
+
+  // 如果 baseUrl 仍然为空，使用默认值
+  if (!baseUrl) {
+    baseUrl = DEFAULT_BASE_URL;
+  }
+
   const missing: string[] = [];
   if (!baseUrl) missing.push('baseUrl');
   if (!namespace) missing.push('namespace');
@@ -104,7 +120,7 @@ export function parseRef(ref: string, options: UrlParseOptions = {}): ParsedUrl 
  * 构建 API URL
  * 格式: <baseUrl>/api/v1/envx/<namespace>/<project>/push
  */
-export function buildApiUrl(parsedUrl: ParsedUrl): string {
+export function buildPushUrl(parsedUrl: ParsedUrl): string {
   const baseUrl = parsedUrl.baseUrl.replace(/\/$/, '');
   return `${baseUrl}/api/v1/envx/${parsedUrl.namespace}/${parsedUrl.project}/push`;
 }
@@ -131,25 +147,4 @@ export function validateUrl(url: string): { isValid: boolean; error?: string } {
       error: 'Invalid URL format',
     };
   }
-}
-
-/**
- * 从配置中获取远程 URL 信息
- */
-export function getRemoteUrlFromConfig(
-  devConfigRemote?: string,
-  options: UrlParseOptions = {}
-): ParsedUrl | null {
-  if (!devConfigRemote) {
-    return null;
-  }
-
-  return parseRef(devConfigRemote, options);
-}
-
-/**
- * 获取默认的远程 URL 信息
- */
-export function getDefaultRemoteUrl(options: UrlParseOptions = {}): ParsedUrl {
-  return parseRef(DEFAULT_BASE_URL, options);
 }
