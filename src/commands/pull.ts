@@ -27,7 +27,6 @@ interface RemoteEnvRecord {
   project: string;
   key: string;
   value: string;
-  version?: number | null;
   timestamp: string;
   action: string;
   source: string;

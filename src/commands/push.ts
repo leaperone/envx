@@ -162,8 +162,8 @@ export function pushCommand(program: Command): void {
 
           if (options.verbose && responseData.data && Array.isArray(responseData.data)) {
             console.log(chalk.blue('\n📝 Response data:'));
-            (responseData.data as Array<{ key: string; value: string; version: number }>).forEach((item) => {
-              console.log(chalk.gray(`   ${item.key} = ${item.value} (v${item.version})`));
+            (responseData.data as Array<{ key: string; value: string }>).forEach((item) => {
+              console.log(chalk.gray(`   ${item.key} = ${item.value}`));
             });
           }
         } else {

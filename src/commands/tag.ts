@@ -21,7 +21,7 @@ interface TagOptions {
 export function tagCommand(program: Command): void {
   program
     .command('tag <tagname>')
-    .description('Create a new version of environment variables with a tag')
+    .description('Create a new tagged snapshot of environment variables')
     .option('-c, --config <path>', 'Path to config file (default: ./envx.config.yaml)', './envx.config.yaml')
     .option('-m, --message <text>', 'Message describing this tag')
     .option('-a, --all', 'Tag all environment variables in the config')

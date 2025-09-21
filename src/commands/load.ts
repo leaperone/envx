@@ -10,7 +10,6 @@ import { updateEnvFileWithConfig, isEnvRequired, getEnvTargetFiles } from '../ut
 interface LoadOptions {
   config?: string;
   key?: string;
-  version?: number;
   tag?: string;
   all?: boolean;
   export?: boolean;
@@ -28,7 +27,6 @@ export function loadCommand(program: Command): void {
       './envx.config.yaml'
     )
     .option('-k, --key <key>', 'Load specific environment variable by key')
-    .option('-v, --version <number>', 'Load specific version of the variable (default: latest)')
     .option('-t, --tag <tag>', 'Load all environment variables from a specific tag')
     .option('-a, --all', 'Load all environment variables defined in config')
     .option('-e, --export', 'Export variables to shell (print export commands)')
@@ -75,7 +73,6 @@ export function loadCommand(program: Command): void {
           let variables: Array<{
             key: string;
             value: string;
-            version: number;
             config?: EnvConfig | string | undefined;
           }> = [];
 
@@ -97,52 +94,23 @@ export function loadCommand(program: Command): void {
               process.exit(1);
             }
 
-            if (options.version) {
-              // 加载特定版本
-              const records = dbManager.getVersionHistory(options.key);
-              const targetRecord = records.find(r => r.version === options.version);
+            // 加载最新记录
+            const latestRecord = dbManager.getLatestVersion(options.key);
 
-              if (!targetRecord) {
-                console.error(
-                  chalk.red(
-                    `❌ Error: Version ${options.version} not found for key "${options.key}"`
-                  )
-                );
-                process.exit(1);
-              }
-
-              variables = [
-                {
-                  key: targetRecord.key,
-                  value: targetRecord.value,
-                  version: targetRecord.version,
-                  config: envConfig,
-                },
-              ];
-
-              console.log(chalk.green(`✅ Found version ${options.version} of "${options.key}"`));
-            } else {
-              // 加载最新版本
-              const latestRecord = dbManager.getLatestVersion(options.key);
-
-              if (!latestRecord) {
-                console.error(chalk.red(`❌ Error: No records found for key "${options.key}"`));
-                process.exit(1);
-              }
-
-              variables = [
-                {
-                  key: latestRecord.key,
-                  value: latestRecord.value,
-                  version: latestRecord.version,
-                  config: envConfig,
-                },
-              ];
-
-              console.log(
-                chalk.green(`✅ Found latest version ${latestRecord.version} of "${options.key}"`)
-              );
+            if (!latestRecord) {
+              console.error(chalk.red(`❌ Error: No records found for key "${options.key}"`));
+              process.exit(1);
             }
+
+            variables = [
+              {
+                key: latestRecord.key,
+                value: latestRecord.value,
+                config: envConfig,
+              },
+            ];
+
+            console.log(chalk.green(`✅ Found latest record of "${options.key}"`));
           } else if (options.tag) {
             // 加载特定标签的所有变量
             console.log(chalk.gray(`🔍 Loading all environment variables from tag: ${options.tag}`));
@@ -155,11 +123,11 @@ export function loadCommand(program: Command): void {
 
             console.log(chalk.gray(`📋 Found ${tagRecords.length} records for tag "${options.tag}"`));
 
-            // 按key分组，只取每个key的最新版本
+            // 按key分组，只取每个key的最新记录
             const latestByKey = new Map<string, EnvHistoryRecord>();
             tagRecords.forEach(record => {
               const existing = latestByKey.get(record.key);
-              if (!existing || record.version > existing.version) {
+              if (!existing || new Date(record.timestamp) > new Date(existing.timestamp)) {
                 latestByKey.set(record.key, record);
               }
             });
@@ -176,10 +144,9 @@ export function loadCommand(program: Command): void {
               variables.push({
                 key: record.key,
                 value: record.value,
-                version: record.version,
                 config: envConfig,
               });
-              console.log(chalk.green(`✅ Loaded ${key} (v${record.version}) from tag "${options.tag}"`));
+              console.log(chalk.green(`✅ Loaded ${key} from tag "${options.tag}"`));
             }
 
             console.log(
@@ -205,10 +172,9 @@ export function loadCommand(program: Command): void {
                 variables.push({
                   key: latestRecord.key,
                   value: latestRecord.value,
-                  version: latestRecord.version,
                   config: envConfig,
                 });
-                console.log(chalk.green(`✅ Loaded ${key} (v${latestRecord.version})`));
+                console.log(chalk.green(`✅ Loaded ${key}`));
               } else {
                 console.log(chalk.yellow(`⚠️  No database record found for ${key}`));
               }
@@ -244,7 +210,7 @@ export function loadCommand(program: Command): void {
               : 'no config';
             console.log(
               chalk.gray(
-                `   ${variable.key} = ${variable.value} (v${variable.version}, ${configInfo})`
+                `   ${variable.key} = ${variable.value} (${configInfo})`
               )
             );
           });
@@ -337,7 +303,7 @@ export function loadCommand(program: Command): void {
 
             variables.forEach(variable => {
               console.log(
-                chalk.gray(`   ${variable.key} = ${variable.value} (v${variable.version})`)
+                chalk.gray(`   ${variable.key} = ${variable.value}`)
               );
 
               // 显示配置相关信息
