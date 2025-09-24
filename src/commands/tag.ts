@@ -4,8 +4,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import inquirer from 'inquirer';
 import { ConfigManager } from '@/utils/config';
-import { getEnvs, saveEnvs, writeEnvs } from '@/utils/com';
-// removed direct env file helpers; use writeEnvs instead
+import { getEnvs, saveEnvs } from '@/utils/com';
 
 interface TagOptions {
   verbose?: boolean;
@@ -38,10 +37,7 @@ export function tagCommand(program: Command): void {
 
         // 加载配置
         const configManager = new ConfigManager(configPath);
-        const config = configManager.getConfig();
         const envConfigs = configManager.getAllEnvConfigs();
-
-        // 准备将配置键的值来源：优先 DB 最新值，不足时读取 env 文件
 
         // 验证标签名
         if (!tagname || tagname.trim().length === 0) {
@@ -102,21 +98,6 @@ export function tagCommand(program: Command): void {
         // 保存到 DB：一次性写入为该 tag 的键值集合
         if (taggedCount > 0) {
           await saveEnvs(configPath, Object.fromEntries(taggedEntries), trimmedTagname);
-        }
-
-        // 更新环境文件（如果配置了 files）
-        if (config.files && taggedCount > 0) {
-          console.log(chalk.blue('🔄 Updating environment files...'));
-          try {
-            await writeEnvs(configPath, Object.fromEntries(taggedEntries));
-            console.log(chalk.green('✅ Environment files updated'));
-          } catch (error) {
-            console.warn(
-              chalk.yellow(
-                `⚠️  Warning: Failed to update environment files: ${error instanceof Error ? error.message : String(error)}`
-              )
-            );
-          }
         }
 
         // 显示结果

@@ -175,16 +175,64 @@ export function isEnvRequired(key: string, config: EnvxConfig): boolean {
   return false;
 }
 
-export function serializeUnset(key: string, shell: ShellKind): string {
-  if (shell === 'cmd') return `set ${key}=`;
-  if (shell === 'powershell') return `Remove-Item Env:${key} -ErrorAction SilentlyContinue`;
-  return `unset ${key}`;
+export async function delEnv(key: string, filePath: string | string[]) {
+  if (typeof filePath === 'string') {
+    const env = await readEnvFile(filePath);
+    delete env[key];
+    await writeEnvFile(filePath, env);
+  } else {
+    for (const file of filePath) {
+      const env = await readEnvFile(file);
+      delete env[key];
+      await writeEnvFile(file, env);
+    }
+  }
 }
 
-export function detectDefaultShell(): ShellKind {
-  if (process.platform === 'win32') {
-    return 'powershell';
+export async function exportEnv(envs: EnvMap): Promise<string[]> {
+  const commands: string[] = [];
+  
+  const shell = detectDefaultShell();
+
+  for (const [key, value] of Object.entries(envs)) {
+    const command = generateExportCommand(key, value, shell);
+    commands.push(command);
   }
+  
+  return commands;
+}
+
+export async function unsetEnv(key: string | string[]): Promise<void> {
+  const shell = detectDefaultShell() as ShellKind;
+  const { program, args } = detectInteractiveShellProgram(shell);
+
+  // 构建取消设置环境变量的命令
+  const keys = Array.isArray(key) ? key : [key];
+  const unsetCommands = keys.map(k => generateUnsetCommand(k, shell));
+  const command = unsetCommands.join('; ');
+
+  const child = spawn(program, [...args, '-c', command], {
+    stdio: 'inherit',
+    env: { ...process.env },
+  });
+
+  child.on('exit', code => {
+    process.exitCode = code == null ? 0 : code;
+  });
+}
+
+/**
+ * 检测默认shell
+ */
+export function detectDefaultShell(): string {
+  const shell = process.env.SHELL || process.env.COMSPEC || 'sh';
+
+  if (shell.includes('bash')) return 'bash';
+  if (shell.includes('zsh')) return 'zsh';
+  if (shell.includes('fish')) return 'fish';
+  if (shell.includes('cmd')) return 'cmd';
+  if (shell.includes('powershell')) return 'powershell';
+
   return 'sh';
 }
 
@@ -201,33 +249,41 @@ export function detectInteractiveShellProgram(shell: ShellKind): {
   return { program: userShell, args: ['-i'] };
 }
 
-export async function delEnv(key: string, filePath: string | string[]) {
-  if (typeof filePath === 'string') {
-    const env = await readEnvFile(filePath);
-    delete env[key];
-    await writeEnvFile(filePath, env);
-  } else {
-    for (const file of filePath) {
-      const env = await readEnvFile(file);
-      delete env[key];
-      await writeEnvFile(file, env);
-    }
+export function generateUnsetCommand(key: string, shell: string): string {
+  switch (shell) {
+    case 'bash':
+    case 'sh':
+    case 'zsh':
+      return `unset ${key}`;
+    case 'fish':
+      return `set -e ${key}`;
+    case 'cmd':
+      return `set ${key}=`;
+    case 'powershell':
+      return `Remove-Item Env:${key} -ErrorAction SilentlyContinue`;
+    default:
+      return `unset ${key}`;
   }
 }
 
-export async function unsetEnv(key: string) {
-  const shell = detectDefaultShell();
-  const { program, args } = detectInteractiveShellProgram(shell);
+/**
+ * 生成shell导出命令
+ */
+export function generateExportCommand(key: string, value: string, shell: string): string {
+  const escapedValue = value.replace(/"/g, '\\"');
 
-  // 构建取消设置环境变量的命令
-  const unsetCommand = serializeUnset(key, shell);
-
-  const child = spawn(program, [...args, '-c', unsetCommand], {
-    stdio: 'inherit',
-    env: { ...process.env },
-  });
-
-  child.on('exit', code => {
-    process.exitCode = code == null ? 0 : code;
-  });
+  switch (shell) {
+    case 'bash':
+    case 'sh':
+    case 'zsh':
+      return `export ${key}="${escapedValue}"`;
+    case 'fish':
+      return `set -gx ${key} "${escapedValue}"`;
+    case 'cmd':
+      return `set ${key}=${value}`;
+    case 'powershell':
+      return `$env:${key} = "${escapedValue}"`;
+    default:
+      return `export ${key}="${escapedValue}"`;
+  }
 }

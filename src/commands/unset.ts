@@ -5,7 +5,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { ConfigManager } from '@/utils/config';
 import { ShellKind } from '@/types/common';
-import { detectDefaultShell, detectInteractiveShellProgram, serializeUnset } from '@/utils/env';
+import { detectDefaultShell, detectInteractiveShellProgram, generateUnsetCommand, unsetEnv } from '@/utils/env';
 
 interface UnsetOptions {
   verbose?: boolean;
@@ -13,6 +13,7 @@ interface UnsetOptions {
   apply?: boolean;
   print?: boolean;
   config?: string;
+  key?: string;
 }
 
 export function unsetCommand(program: Command): void {
@@ -22,6 +23,7 @@ export function unsetCommand(program: Command): void {
     .option('-s, --shell <shell>', 'Target shell: sh | cmd | powershell')
     .option('--apply', 'Start a new subshell with variables unset (default if no --print)')
     .option('--print', 'Only print commands, do not execute')
+    .option('-k, --key <key>', 'Unset specific environment variable by key')
     .option('-v, --verbose', 'Verbose output')
     .option('-c, --config <path>', 'Path to config file (default: ./envx.config.yaml)', './envx.config.yaml')
     .action(async (options: UnsetOptions = {}) => {
@@ -46,9 +48,32 @@ export function unsetCommand(program: Command): void {
         // 从配置中提取环境变量键名
         const keys = Object.keys(config.env);
 
+        // 如果指定了特定的key，只处理该key
+        if (options.key) {
+          if (!config.env[options.key]) {
+            console.error(chalk.red(`❌ Error: Environment variable "${options.key}" not found in configuration`));
+            process.exit(1);
+          }
+          
+          if (options.print) {
+            const command = generateUnsetCommand(options.key, shell);
+            if (options.verbose) {
+              console.log(chalk.gray('\n# Command to unset variable in your current shell'));
+            }
+            process.stdout.write(command + '\n');
+            console.log(chalk.green('\n✅ Unset command printed for shell.'));
+            return;
+          } else {
+            // 使用 unsetEnv 函数
+            console.log(chalk.blue(`🧹 Unsetting environment variable: ${options.key}`));
+            await unsetEnv(options.key);
+            return;
+          }
+        }
+
         // Only print if explicitly requested
         if (options.print) {
-          const lines = keys.map(k => serializeUnset(k, shell));
+          const lines = keys.map(k => generateUnsetCommand(k, shell));
           const output = lines.join('\n');
           if (options.verbose) {
             console.log(chalk.gray('\n# Commands to unset variables in your current shell'));

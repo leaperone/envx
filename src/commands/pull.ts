@@ -8,6 +8,7 @@ import {
   parseRef,
   buildPullUrl,
 } from '@/utils/url';
+import { detectDefaultShell, exportEnv } from '@/utils/env';
 // env file updates will be handled via writeEnvs
 
 interface PullOptions {
@@ -226,9 +227,15 @@ export function pullCommand(program: Command): void {
             console.log(chalk.gray('Copy and run these commands in your shell:'));
             console.log('');
 
-            for (const variable of variables) {
-              const exportCmd = generateExportCommand(variable.key, variable.value, shell);
-              console.log(chalk.white(exportCmd));
+            // 使用 exportEnv 函数
+            const envMap = variables.reduce<Record<string, string>>((acc, v) => {
+              acc[v.key] = v.value;
+              return acc;
+            }, {});
+            
+            const exportCommands = await exportEnv(envMap);
+            for (const command of exportCommands) {
+              console.log(chalk.white(command));
             }
 
             console.log('');
@@ -279,45 +286,4 @@ export function pullCommand(program: Command): void {
         process.exit(1);
       }
     });
-}
-
-/**
- * 检测默认shell
- */
-function detectDefaultShell(): string {
-  const shell = process.env.SHELL || process.env.COMSPEC || 'sh';
-
-  if (shell.includes('bash')) return 'bash';
-  if (shell.includes('zsh')) return 'zsh';
-  if (shell.includes('fish')) return 'fish';
-  if (shell.includes('cmd')) return 'cmd';
-  if (shell.includes('powershell')) return 'powershell';
-
-  return 'sh';
-}
-
-/**
- * 生成shell导出命令
- */
-function generateExportCommand(key: string, value: string, shell: string): string {
-  const escapedValue = value.replace(/"/g, '\\"');
-
-  switch (shell) {
-    case 'bash':
-    case 'sh':
-    case 'zsh':
-      return `export ${key}="${escapedValue}"`;
-
-    case 'fish':
-      return `set -gx ${key} "${escapedValue}"`;
-
-    case 'cmd':
-      return `set ${key}=${value}`;
-
-    case 'powershell':
-      return `$env:${key} = "${escapedValue}"`;
-
-    default:
-      return `export ${key}="${escapedValue}"`;
-  }
 }
