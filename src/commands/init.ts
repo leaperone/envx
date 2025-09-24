@@ -3,9 +3,10 @@ import chalk from 'chalk';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import inquirer from 'inquirer';
-import { ConfigManager } from '../utils/config';
-import { createDatabaseManager } from '../utils/db';
-import { readEnvFile } from '../utils/env';
+import { ConfigManager } from '@/utils/config';
+import { createDatabaseManagerFromConfigPath } from '@/utils/db';
+import { saveEnvs } from '@/utils/com';
+import { readEnvFile } from '@/utils/env';
 
 export function initCommand(program: Command): void {
   program
@@ -76,21 +77,10 @@ export function initCommand(program: Command): void {
 
         // 初始化数据库并记录初始环境变量
         console.log(chalk.blue('🗄️  Initializing database...'));
-        const configDir = join(process.cwd(), options.output, '..');
-        const dbManager = createDatabaseManager(configDir);
-
-        // 记录初始环境变量到数据库
-        const initialRecords = Object.entries(envs).map(([key, value]) => ({
-          key,
-          value: value as string,
-          timestamp: new Date().toISOString(),
-          action: 'created' as const,
-          source: 'init',
-        }));
-
-        dbManager.addHistoryRecords(initialRecords);
-
+        // 使用新的保存函数按配置路径存储（打上 init 标签）
+        await saveEnvs(configOutputPath, envs, 'init');
         // 获取数据库统计信息
+        const dbManager = createDatabaseManagerFromConfigPath(configOutputPath);
         const dbStats = dbManager.getStats();
         dbManager.close();
 

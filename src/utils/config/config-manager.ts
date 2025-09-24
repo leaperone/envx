@@ -21,11 +21,11 @@ export class ConfigManager {
       if (result.validation.isValid) {
         return result.config;
       } else {
-        console.warn('配置文件验证失败，使用默认配置');
-        console.warn('错误:', result.validation.errors.join(', '));
+        const errors = result.validation.errors.join(', ');
+        throw new Error(`配置文件验证失败: ${errors}`);
       }
     }
-    return ConfigParser.getDefaultConfig();
+    throw new Error(`配置文件不存在: ${this.configPath}`);
   }
 
   /**
@@ -64,6 +64,16 @@ export class ConfigManager {
     } catch (error) {
       throw new Error(`保存配置文件失败: ${error instanceof Error ? error.message : '未知错误'}`);
     }
+  }
+
+  getEnvFilesConfig(): string[] {
+    const files = this.config.files;
+    if (!files) return [];
+    return Array.isArray(files) ? files : [files];
+  }
+
+  isExport(): boolean {
+    return this.config.export === true;
   }
 
   /**

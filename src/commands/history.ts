@@ -2,34 +2,35 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { createDatabaseManager, EnvHistoryRecord } from '../utils/db';
+import { createDatabaseManagerFromConfigPath, EnvHistoryRecord } from '@/utils/db';
 
 interface HistoryOptions {
   config?: string;
   key?: string;
-  tag?: string;
-  limit?: number;
   format?: 'table' | 'json';
   verbose?: boolean;
 }
 
 export function historyCommand(program: Command): void {
   program
-    .command('history')
-    .description('View environment variable history records from database')
-    .option('-c, --config <path>', 'Path to config file (default: ./envx.config.yaml)', './envx.config.yaml')
+    .command('history <tag>')
+    .description('View environment variable history records from database by tag')
+    .option(
+      '-c, --config <path>',
+      'Path to config file (default: ./envx.config.yaml)',
+      './envx.config.yaml'
+    )
     .option('-k, --key <key>', 'Filter history by specific environment variable key')
-    .option('--tag <tag>', 'Filter history by specific tag')
-    .option('-l, --limit <number>', 'Limit number of records to show (default: 50)', '50')
     .option('-f, --format <format>', 'Output format: table | json (default: table)', 'table')
     .option('-v, --verbose', 'Show detailed information including full values')
-    .action(async (options: HistoryOptions) => {
+    .action(async (tag: string, options: HistoryOptions) => {
       try {
         const configPath = join(process.cwd(), options.config || './envx.config.yaml');
-        const configDir = join(process.cwd(), (options.config || './envx.config.yaml'), '..');
+        const configDir = join(process.cwd(), options.config || './envx.config.yaml', '..');
 
         console.log(chalk.blue('📚 Viewing environment variable history...'));
         console.log(chalk.gray(`📁 Config file: ${options.config}`));
+        console.log(chalk.gray(`🏷️  Tag: ${tag}`));
 
         // 检查配置文件是否存在
         if (!existsSync(configPath)) {
@@ -47,31 +48,33 @@ export function historyCommand(program: Command): void {
         }
 
         // 连接数据库
-        const dbManager = createDatabaseManager(configDir);
+        const dbManager = createDatabaseManagerFromConfigPath(configPath);
 
         try {
           let records: EnvHistoryRecord[] = [];
-          const limit = parseInt(String(options.limit || '50'), 10);
 
           // 检查是否有任何过滤条件
-          const hasFilters = options.key || options.tag;
+          const hasFilters = options.key;
 
           if (hasFilters) {
             // 有过滤条件时，获取过滤后的记录
             if (options.key) {
-              console.log(chalk.gray(`🔍 Filtering by key: ${options.key}`));
-              records = dbManager.getHistoryByKey(options.key, limit);
-            } else if (options.tag) {
-              console.log(chalk.gray(`🔍 Filtering by tag: ${options.tag}`));
-              records = dbManager.getHistoryByTag(options.tag, limit);
+              console.log(chalk.gray(`🔍 Filtering by key: ${options.key} in tag: ${tag}`));
+              const tagRecords = dbManager.getHistoryByTag(tag);
+              records = tagRecords.filter(record => record.key === options.key);
+            } else {
+              console.log(chalk.gray(`🔍 Filtering by tag: ${tag}`));
+              records = dbManager.getHistoryByTag(tag);
             }
 
             if (records.length === 0) {
               console.log(chalk.yellow('📭 No history records found'));
               if (options.key) {
-                console.log(chalk.gray(`   No records found for key: ${options.key}`));
-              } else if (options.tag) {
-                console.log(chalk.gray(`   No records found for tag: ${options.tag}`));
+                console.log(
+                  chalk.gray(`   No records found for key: ${options.key} in tag: ${tag}`)
+                );
+              } else {
+                console.log(chalk.gray(`   No records found for tag: ${tag}`));
               }
               return;
             }
@@ -81,154 +84,137 @@ export function historyCommand(program: Command): void {
 
             if (options.format === 'json') {
               // JSON 格式输出
-              console.log(JSON.stringify({
-                stats,
-                records,
-                filters: {
-                  key: options.key,
-                  tag: options.tag,
-                  limit: limit
-                }
-              }, null, 2));
+              console.log(
+                JSON.stringify(
+                  {
+                    stats,
+                    records,
+                    filters: {
+                      key: options.key,
+                      tag: tag,
+                      // limit removed
+                    },
+                  },
+                  null,
+                  2
+                )
+              );
             } else {
               // 表格格式输出
               console.log(chalk.blue('\n📊 Database Statistics:'));
               console.log(chalk.gray(`   Total records: ${stats.totalRecords}`));
               console.log(chalk.gray(`   Unique keys: ${stats.uniqueKeys}`));
               if (stats.oldestRecord) {
-                console.log(chalk.gray(`   Oldest record: ${new Date(stats.oldestRecord).toLocaleString()}`));
+                console.log(
+                  chalk.gray(`   Oldest record: ${new Date(stats.oldestRecord).toLocaleString()}`)
+                );
               }
               if (stats.newestRecord) {
-                console.log(chalk.gray(`   Newest record: ${new Date(stats.newestRecord).toLocaleString()}`));
+                console.log(
+                  chalk.gray(`   Newest record: ${new Date(stats.newestRecord).toLocaleString()}`)
+                );
               }
 
               // 显示过滤条件
-              if (options.tag) {
-                console.log(chalk.blue(`\n🔍 Filtered by tag: ${options.tag}`));
-              } else if (options.key) {
-                console.log(chalk.blue(`\n🔍 Filtered by key: ${options.key}`));
+              if (options.key) {
+                console.log(chalk.blue(`\n🔍 Filtered by key: ${options.key} in tag: ${tag}`));
+              } else {
+                console.log(chalk.blue(`\n🔍 Filtered by tag: ${tag}`));
               }
 
               console.log(chalk.blue(`\n📋 History Records (${records.length} shown):`));
-              
+
               // 显示记录表格
               if (options.verbose) {
                 // 详细模式：显示完整信息
-                console.log(chalk.gray('┌─────┬─────────────────────┬─────────────────────┬─────────────┬─────────┬────────┬─────────────────────┐'));
-                console.log(chalk.gray('│ ID  │ Key                 │ Value               │ Timestamp   │ Action  │ Source │ Tag                 │'));
-                console.log(chalk.gray('├─────┼─────────────────────┼─────────────────────┼─────────────┼─────────┼────────┼─────────────────────┤'));
-                
+                console.log(
+                  chalk.gray(
+                    '┌─────┬─────────────────────┬─────────────────────┬─────────────┬─────────────────────┐'
+                  )
+                );
+                console.log(
+                  chalk.gray(
+                    '│ ID  │ Key                 │ Value               │ Timestamp   │ Tag                 │'
+                  )
+                );
+                console.log(
+                  chalk.gray(
+                    '├─────┼─────────────────────┼─────────────────────┼─────────────┼─────────────────────┤'
+                  )
+                );
+
                 records.forEach(record => {
                   const id = String(record.id || '').padEnd(3);
                   const key = (record.key || '').padEnd(19);
                   const value = (record.value || '').padEnd(19);
                   const timestamp = new Date(record.timestamp).toLocaleString().padEnd(11);
-                  const action = (record.action || '').padEnd(7);
-                  const source = (record.source || '').padEnd(6);
-                  const tag = (record.tag || 'N/A').padEnd(19);
-                  
-                  console.log(chalk.gray(`│ ${id} │ ${key} │ ${value} │ ${timestamp} │ ${action} │ ${source} │ ${tag} │`));
+                  const tag = (record.tag || '').padEnd(19);
+
+                  console.log(chalk.gray(`│ ${id} │ ${key} │ ${value} │ ${timestamp} │ ${tag} │`));
                 });
-                
-                console.log(chalk.gray('└─────┴─────────────────────┴─────────────────────┴─────────────┴─────────┴────────┴─────────────────────┘'));
+
+                console.log(
+                  chalk.gray(
+                    '└─────┴─────────────────────┴─────────────────────┴─────────────┴─────────────────────┘'
+                  )
+                );
               } else {
                 // 简洁模式：显示关键信息
-                console.log(chalk.gray('┌─────────────────────┬─────────────────────┬─────────────┬─────────┬────────┬─────────────────────┐'));
-                console.log(chalk.gray('│ Key                 │ Value               │ Timestamp   │ Action  │ Source │ Tag                 │'));
-                console.log(chalk.gray('├─────────────────────┼─────────────────────┼─────────────┼─────────┼────────┼─────────────────────┤'));
-                
+                console.log(
+                  chalk.gray(
+                    '┌─────────────────────┬─────────────────────┬─────────────┬─────────────────────┐'
+                  )
+                );
+                console.log(
+                  chalk.gray(
+                    '│ Key                 │ Value               │ Timestamp   │ Tag                 │'
+                  )
+                );
+                console.log(
+                  chalk.gray(
+                    '├─────────────────────┼─────────────────────┼─────────────┼─────────────────────┤'
+                  )
+                );
+
                 records.forEach(record => {
                   const key = (record.key || '').padEnd(19);
                   const value = (record.value || '').padEnd(19);
                   const timestamp = new Date(record.timestamp).toLocaleString().padEnd(11);
-                  const action = (record.action || '').padEnd(7);
-                  const source = (record.source || '').padEnd(6);
-                  const tag = (record.tag || 'N/A').padEnd(19);
-                  
-                  console.log(chalk.gray(`│ ${key} │ ${value} │ ${timestamp} │ ${action} │ ${source} │ ${tag} │`));
-                });
-                
-                console.log(chalk.gray('└─────────────────────┴─────────────────────┴─────────────┴─────────┴────────┴─────────────────────┘'));
-              }
+                  const tag = (record.tag || '').padEnd(19);
 
-              // 显示操作类型统计
-              const actionStats = records.reduce((acc, record) => {
-                acc[record.action] = (acc[record.action] || 0) + 1;
-                return acc;
-              }, {} as Record<string, number>);
-
-              if (Object.keys(actionStats).length > 0) {
-                console.log(chalk.blue('\n📈 Action Summary:'));
-                Object.entries(actionStats).forEach(([action, count]) => {
-                  const emoji = action === 'created' ? '🆕' : action === 'updated' ? '🔄' : '🗑️';
-                  console.log(chalk.gray(`   ${emoji} ${action}: ${count}`));
+                  console.log(chalk.gray(`│ ${key} │ ${value} │ ${timestamp} │ ${tag} │`));
                 });
+
+                console.log(
+                  chalk.gray(
+                    '└─────────────────────┴─────────────────────┴─────────────┴─────────────────────┘'
+                  )
+                );
               }
 
               // 显示标签统计
-              if (options.tag) {
-                const tagStats = records.reduce((acc, record) => {
-                  const tag = record.tag || 'N/A';
-                  acc[tag] = (acc[tag] || 0) + 1;
+              const tagStats = records.reduce(
+                (acc, record) => {
+                  const recordTag = record.tag || 'N/A';
+                  acc[recordTag] = (acc[recordTag] || 0) + 1;
                   return acc;
-                }, {} as Record<string, number>);
+                },
+                {} as Record<string, number>
+              );
 
-                if (Object.keys(tagStats).length > 0) {
-                  console.log(chalk.blue('\n🏷️  Tag Summary:'));
-                  Object.entries(tagStats).forEach(([tag, count]) => {
-                    console.log(chalk.gray(`   ${tag}: ${count} records`));
-                  });
-                }
+              if (Object.keys(tagStats).length > 0) {
+                console.log(chalk.blue('\n🏷️  Tag Summary:'));
+                Object.entries(tagStats).forEach(([recordTag, count]) => {
+                  console.log(chalk.gray(`   ${recordTag}: ${count} records`));
+                });
               }
 
-              if (records.length >= limit) {
-                console.log(chalk.yellow(`\n⚠️  Showing first ${limit} records. Use --limit to show more.`));
-              }
+              // limit removed
             }
-          } else {
-            // 没有过滤条件时，显示可查询的版本和标签信息
-            console.log(chalk.blue('\n📋 Available Query Options:'));
-            
-
-            // 获取所有标签信息
-            const allTagsStats = dbManager.getAllTagsStats();
-            if (allTagsStats.length > 0) {
-              console.log(chalk.blue('\n🏷️  Available Tags:'));
-              console.log(chalk.gray('┌─────────────────────┬─────────────┬─────────────┬─────────────────────┬─────────────────────┐'));
-              console.log(chalk.gray('│ Tag                 │ Records     │ Variables   │ First Created        │ Last Updated         │'));
-              console.log(chalk.gray('├─────────────────────┼─────────────┼─────────────┼─────────────────────┼─────────────────────┤'));
-              
-              allTagsStats.forEach(tagInfo => {
-                const tag = (tagInfo.tag || '').padEnd(19);
-                const records = String(tagInfo.totalRecords || 0).padEnd(11);
-                const variables = String(tagInfo.uniqueKeys || 0).padEnd(11);
-                const firstCreated = tagInfo.firstCreated 
-                  ? new Date(tagInfo.firstCreated).toLocaleString().padEnd(19)
-                  : 'N/A'.padEnd(19);
-                const lastUpdated = tagInfo.lastUpdated 
-                  ? new Date(tagInfo.lastUpdated).toLocaleString().padEnd(19)
-                  : 'N/A'.padEnd(19);
-                
-                console.log(chalk.gray(`│ ${tag} │ ${records} │ ${variables} │ ${firstCreated} │ ${lastUpdated} │`));
-              });
-              
-              console.log(chalk.gray('└─────────────────────┴─────────────┴─────────────┴─────────────────────┴─────────────────────┘'));
-            }
-
-            // 显示使用提示
-            console.log(chalk.blue('\n💡 Usage Examples:'));
-            console.log(chalk.gray('   • View specific tag: envx history --tag v1.0.0'));
-            console.log(chalk.gray('   • View specific key: envx history --key DATABASE_URL'));
-            console.log(chalk.gray('   • View all records: envx history --key all'));
-            console.log(chalk.gray('   • JSON output: envx history --tag v1.0.0 --format json'));
-
-            return;
           }
-
         } finally {
           dbManager.close();
         }
-
       } catch (error) {
         console.error(
           chalk.red(`❌ Error: ${error instanceof Error ? error.message : String(error)}`)

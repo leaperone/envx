@@ -2,13 +2,13 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { ConfigManager } from '../utils/config';
-import { createDatabaseManager } from '../utils/db';
+import { ConfigManager } from '@/utils/config';
+import { saveEnvs, writeEnvs } from '@/utils/com';
 import {
   parseRef,
   buildPullUrl,
-} from '../utils/url';
-import { updateEnvFileWithConfig, getEnvTargetFiles } from '../utils/env';
+} from '@/utils/url';
+// env file updates will be handled via writeEnvs
 
 interface PullOptions {
   verbose?: boolean;
@@ -172,156 +172,102 @@ export function pullCommand(program: Command): void {
           chalk.green(`✅ Successfully pulled ${remoteRecords.length} records from remote server`)
         );
 
-        // 获取数据库管理器
-        const configDir = join(process.cwd(), options.config || './envx.config.yaml', '..');
-        const dbManager = createDatabaseManager(configDir);
+        // 使用 saveEnvs 保存到本地数据库
+        console.log(chalk.blue('💾 Saving records to local database...'));
 
-        try {
-          // 将远程数据保存到本地数据库
-          console.log(chalk.blue('💾 Saving records to local database...'));
-
-          let savedCount = 0;
-          const savedRecords: Array<{
-            key: string;
-            value: string;
-            tag?: string;
-          }> = [];
-
-          for (const record of remoteRecords) {
-            // 覆盖更新：tag 记录按 tag 覆盖；非 tag 覆盖最新版本记录
-            if (record.tag) {
-              dbManager.upsertTaggedValue(record.key, record.value, record.tag, 'pull');
-            } else {
-              dbManager.upsertLatestVersionedValue(record.key, record.value, 'pull');
-            }
-
-            savedCount++;
-            savedRecords.push({
-              key: record.key,
-              value: record.value,
-              ...(record.tag && { tag: record.tag }),
-            });
-
-            if (options.verbose) {
-              console.log(chalk.green(`   ✅ Saved ${record.key}${record.tag ? ` (tag: ${record.tag})` : ''}`));
-            }
-          }
-
-          console.log(
-            chalk.green(`✅ Successfully saved ${savedCount} new records to local database`)
-          );
-
-          // 显示拉取的变量信息
-          if (savedRecords.length > 0) {
-            console.log(chalk.blue('\n📋 Pulled variables:'));
-            savedRecords.forEach(record => {
-              const tagInfo = record.tag ? ` (tag: ${record.tag})` : '';
-              console.log(chalk.gray(`   ${record.key} = ${record.value}${tagInfo}`));
-            });
-          }
-
-          // 默认加载；传入 --not-load 时不加载
-          if (!options.notLoad && savedRecords.length > 0) {
-            console.log(chalk.blue('\n🔄 Loading pulled variables...'));
-
-            const config = configManager.getConfig();
-            // 先构建候选变量列表
-            const candidateVariables = savedRecords.map(record => ({
-              key: record.key,
-              value: record.value,
-              inConfig: configManager.hasEnvVar(record.key),
-              config: configManager.getEnvVar(record.key),
-            }));
-
-            // 与 load.ts 一致：默认仅加载配置中存在的变量；使用 --force 时不过滤
-            const variables = candidateVariables
-              .filter(v => options.force || v.inConfig)
-              .map(v => ({ key: v.key, value: v.value, config: v.config }));
-
-            // 提示被跳过的变量
-            if (!options.force) {
-              const skipped = candidateVariables.filter(v => !v.inConfig);
-              skipped.forEach(v =>
-                console.log(
-                  chalk.yellow(`⚠️  Skipping ${v.key} (not in config, use --force to include)`) 
-                )
-              );
-            }
-
-            if (options.export) {
-              // 导出模式：打印shell命令
-              const shell = options.shell || detectDefaultShell();
-              console.log(chalk.blue(`\n📤 Export commands for ${shell}:`));
-              console.log(chalk.gray('Copy and run these commands in your shell:'));
-              console.log('');
-
-              variables.forEach(variable => {
-                const exportCmd = generateExportCommand(variable.key, variable.value, shell);
-                console.log(chalk.white(exportCmd));
-              });
-
-              console.log('');
-              console.log(chalk.gray('Or run: eval "$(envx pull --export)"'));
-            } else {
-              // 设置到当前进程环境
-              variables.forEach(variable => {
-                process.env[variable.key] = variable.value;
-                console.log(chalk.green(`✅ Set ${variable.key} = ${variable.value}`));
-              });
-
-              // 如果配置中有 clone 路径，更新对应的环境变量文件
-              if (configManager.getConfigOption('files')) {
-                console.log(chalk.blue('🔄 Updating environment files...'));
-                try {
-                  for (const variable of variables) {
-                    const targetPath =
-                      getEnvTargetFiles(variable.key, config) ||
-                      configManager.getConfigOption('files');
-
-                    if (targetPath && typeof targetPath === 'string') {
-                      await updateEnvFileWithConfig(
-                        targetPath,
-                        { [variable.key]: variable.value },
-                        config,
-                        options.force
-                      );
-                    } else if (targetPath && Array.isArray(targetPath)) {
-                      for (const path of targetPath) {
-                        await updateEnvFileWithConfig(
-                          path,
-                          { [variable.key]: variable.value },
-                          config,
-                          options.force
-                        );
-                      }
-                    }
-                  }
-                  console.log(chalk.green('✅ Environment files updated successfully'));
-                } catch (error) {
-                  console.warn(
-                    chalk.yellow(
-                      `⚠️  Warning: Failed to update environment files: ${error instanceof Error ? error.message : String(error)}`
-                    )
-                  );
-                }
-              }
-
-              console.log(chalk.blue('\n🎉 Environment variables loaded successfully!'));
-            }
-          }
-
-          // 显示总结
-          console.log(chalk.blue('\n📋 Summary:'));
-          console.log(chalk.gray(`   Namespace: ${parsedUrl.namespace}`));
-          console.log(chalk.gray(`   Project: ${parsedUrl.project}`));
-          console.log(chalk.gray(`   Records pulled: ${remoteRecords.length}`));
-          console.log(chalk.gray(`   New records saved: ${savedCount}`));
-          console.log(chalk.gray(`   Remote URL: ${apiUrl}`));
-
-          console.log(chalk.gray(`   Auto-load: ${!options.notLoad ? 'enabled' : 'disabled'}`));
-        } finally {
-          dbManager.close();
+        const tagForSave = parsedUrl.tag || ref;
+        const envMapToSave: Record<string, string> = {};
+        for (const record of remoteRecords) {
+          envMapToSave[record.key] = record.value;
         }
+
+        await saveEnvs(configPath, envMapToSave, tagForSave);
+        const savedCount = Object.keys(envMapToSave).length;
+
+        console.log(
+          chalk.green(`✅ Successfully saved ${savedCount} new records to local database`)
+        );
+
+        // 显示拉取的变量信息
+        if (savedCount > 0) {
+          console.log(chalk.blue('\n📋 Pulled variables:'));
+          for (const [k, v] of Object.entries(envMapToSave)) {
+            const tagInfo = tagForSave ? ` (tag: ${tagForSave})` : '';
+            console.log(chalk.gray(`   ${k} = ${v}${tagInfo}`));
+          }
+        }
+
+        // 默认加载；传入 --not-load 时不加载
+        if (!options.notLoad && savedCount > 0) {
+          console.log(chalk.blue('\n🔄 Loading pulled variables...'));
+
+          const candidateVariables = Object.entries(envMapToSave).map(([key, value]) => ({
+            key,
+            value,
+            inConfig: configManager.hasEnvVar(key),
+          }));
+
+          const variables = candidateVariables
+            .filter(v => options.force || v.inConfig)
+            .map(v => ({ key: v.key, value: v.value }));
+
+          if (!options.force) {
+            const skipped = candidateVariables.filter(v => !v.inConfig);
+            skipped.forEach(v =>
+              console.log(
+                chalk.yellow(`⚠️  Skipping ${v.key} (not in config, use --force to include)`) 
+              )
+            );
+          }
+
+          if (options.export) {
+            const shell = options.shell || detectDefaultShell();
+            console.log(chalk.blue(`\n📤 Export commands for ${shell}:`));
+            console.log(chalk.gray('Copy and run these commands in your shell:'));
+            console.log('');
+
+            for (const variable of variables) {
+              const exportCmd = generateExportCommand(variable.key, variable.value, shell);
+              console.log(chalk.white(exportCmd));
+            }
+
+            console.log('');
+            console.log(chalk.gray('Or run: eval "$(envx pull --export)"'));
+          } else {
+            for (const variable of variables) {
+              process.env[variable.key] = variable.value;
+              console.log(chalk.green(`✅ Set ${variable.key} = ${variable.value}`));
+            }
+
+            if (variables.length > 0) {
+              console.log(chalk.blue('🔄 Updating environment files...'));
+              const envMapForFiles: Record<string, string> = {};
+              for (const v of variables) envMapForFiles[v.key] = v.value;
+              try {
+                await writeEnvs(configPath, envMapForFiles);
+                console.log(chalk.green('✅ Environment files updated successfully'));
+              } catch (error) {
+                console.warn(
+                  chalk.yellow(
+                    `⚠️  Warning: Failed to update environment files: ${error instanceof Error ? error.message : String(error)}`
+                  )
+                );
+              }
+            }
+
+            console.log(chalk.blue('\n🎉 Environment variables loaded successfully!'));
+          }
+        }
+
+        // 显示总结
+        console.log(chalk.blue('\n📋 Summary:'));
+        console.log(chalk.gray(`   Namespace: ${parsedUrl.namespace}`));
+        console.log(chalk.gray(`   Project: ${parsedUrl.project}`));
+        console.log(chalk.gray(`   Records pulled: ${remoteRecords.length}`));
+        console.log(chalk.gray(`   New records saved: ${savedCount}`));
+        console.log(chalk.gray(`   Remote URL: ${apiUrl}`));
+
+        console.log(chalk.gray(`   Auto-load: ${!options.notLoad ? 'enabled' : 'disabled'}`));
       } catch (error) {
         console.error(
           chalk.red(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`)

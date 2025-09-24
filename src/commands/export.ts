@@ -3,8 +3,7 @@ import chalk from 'chalk';
 import { spawn } from 'child_process';
 import { join } from 'path';
 import { existsSync } from 'fs';
-import { ConfigManager } from '../utils/config';
-import { createDatabaseManager } from '../utils/db';
+import { getEnvs } from '@/utils/com';
 
 type ShellKind = 'sh' | 'cmd' | 'powershell';
 
@@ -45,15 +44,15 @@ function detectInteractiveShellProgram(shell: ShellKind): { program: string; arg
 
 export function exportCommand(program: Command): void {
   program
-    .command('export')
-    .description('Export environment variables from envx.config.yaml and print/apply shell commands (sh|cmd|powershell)')
+    .command('export [tag]')
+    .description('Export environment variables from envx.config.yaml (optionally by tag) and print/apply shell commands (sh|cmd|powershell)')
     .option('-s, --shell <shell>', 'Target shell: sh | cmd | powershell')
     .option('--apply', 'Start a new subshell with variables applied (default if no --print)')
     .option('--exec <command>', 'Run a command with variables applied')
     .option('--print', 'Only print commands, do not execute')
     .option('-v, --verbose', 'Verbose output')
     .option('-c, --config <path>', 'Path to config file (default: ./envx.config.yaml)', './envx.config.yaml')
-    .action(async (options: ExportOptions = {}) => {
+    .action(async (tag: string | undefined, options: ExportOptions = {}) => {
       const shell: ShellKind = (options.shell as ShellKind) || detectDefaultShell();
 
       console.log(chalk.blue('📤 Exporting environment variables from config...'));
@@ -69,38 +68,7 @@ export function exportCommand(program: Command): void {
           process.exit(1);
         }
 
-        const configManager = new ConfigManager(configPath);
-        const config = configManager.getConfig();
-        
-        // 从数据库获取环境变量的最新值
-        console.log(chalk.blue('🗄️  Fetching latest environment variable values from database...'));
-        const configDir = join(process.cwd(), options.config || './envx.config.yaml', '..');
-        const dbManager = createDatabaseManager(configDir);
-        
-        // 从配置中提取环境变量，优先使用数据库中的最新值
-        const envMap: Record<string, string> = {};
-        for (const [key, value] of Object.entries(config.env)) {
-          let finalValue = '';
-          
-          // 首先尝试从数据库获取最新值
-          const latestRecord = dbManager.getLatestVersion(key);
-          if (latestRecord && latestRecord.action !== 'deleted') {
-            finalValue = latestRecord.value;
-          } else {
-            // 如果数据库中没有记录，使用配置文件中的值
-            if (typeof value === 'string') {
-              finalValue = value;
-            } else if (value && typeof value === 'object' && 'default' in value) {
-              finalValue = (value as any).default || '';
-            }
-          }
-          
-          if (finalValue) {
-            envMap[key] = finalValue;
-          }
-        }
-        
-        dbManager.close();
+        const envMap = await getEnvs(configPath, tag);
 
         // Execute a command with these env vars
         if (options.exec) {

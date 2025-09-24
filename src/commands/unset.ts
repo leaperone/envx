@@ -3,9 +3,9 @@ import chalk from 'chalk';
 import { spawn } from 'child_process';
 import { join } from 'path';
 import { existsSync } from 'fs';
-import { ConfigManager } from '../utils/config';
-import { ShellKind } from '../types/common';
-import { detectDefaultShell, detectInteractiveShellProgram, serializeUnset } from '../utils/env';
+import { ConfigManager } from '@/utils/config';
+import { ShellKind } from '@/types/common';
+import { detectDefaultShell, detectInteractiveShellProgram, serializeUnset } from '@/utils/env';
 
 interface UnsetOptions {
   verbose?: boolean;

@@ -3,13 +3,9 @@ import chalk from 'chalk';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import inquirer from 'inquirer';
-import { ConfigManager } from '../utils/config';
-import { createDatabaseManager } from '../utils/db';
-import { 
-  updateEnvFileWithConfig, 
-  getEnvTargetFiles,
-  readEnvFile
-} from '../utils/env';
+import { ConfigManager } from '@/utils/config';
+import { getEnvs, saveEnvs, writeEnvs } from '@/utils/com';
+// removed direct env file helpers; use writeEnvs instead
 
 interface TagOptions {
   verbose?: boolean;
@@ -45,9 +41,7 @@ export function tagCommand(program: Command): void {
         const config = configManager.getConfig();
         const envConfigs = configManager.getAllEnvConfigs();
 
-        // 获取数据库管理器
-        const configDir = join(process.cwd(), (options.config || './envx.config.yaml'), '..');
-        const dbManager = createDatabaseManager(configDir);
+        // 准备将配置键的值来源：优先 DB 最新值，不足时读取 env 文件
 
         // 验证标签名
         if (!tagname || tagname.trim().length === 0) {
@@ -57,9 +51,9 @@ export function tagCommand(program: Command): void {
 
         const trimmedTagname = tagname.trim();
 
-        // 检查标签是否已存在
-        const existingTags = dbManager.getAllTags();
-        if (existingTags.includes(trimmedTagname)) {
+        // 检查标签是否已存在（通过尝试读取该 tag 的 envs）
+        const existingTagEnvs = await getEnvs(configPath, trimmedTagname);
+        if (Object.keys(existingTagEnvs).length > 0) {
           console.warn(chalk.yellow(`⚠️  Warning: Tag "${trimmedTagname}" already exists`));
           
           // 询问用户是否覆盖
@@ -74,7 +68,6 @@ export function tagCommand(program: Command): void {
 
           if (!overwrite) {
             console.log(chalk.yellow('❌ Tag creation cancelled'));
-            dbManager.close();
             return;
           }
 
@@ -84,74 +77,38 @@ export function tagCommand(program: Command): void {
         // 获取要标记的环境变量
         if (envConfigs.length === 0) {
           console.warn(chalk.yellow('⚠️  Warning: No environment variables found in config'));
-          dbManager.close();
           return;
         }
 
         console.log(chalk.blue(`📋 Found ${envConfigs.length} environment variables to tag`));
 
-        // 为每个环境变量创建带标签的新版本
-        let taggedCount = 0;
-        const taggedVars: Array<{key: string, value: string}> = [];
-
-        // 读取可能的本地 .env 文件（用于无历史值时兜底）
-        const configuredFiles = config.files
-          ? (Array.isArray(config.files) ? config.files : [config.files])
-          : [];
-        const envFileCache: Record<string, Record<string, string>> = {};
-
+        // 收集需要打标签的键的值：getEnvs(undefined tag) 会读取 .env 与 export 的合并，仅限配置声明键
+        const envMap = await getEnvs(configPath);
+        const taggedEntries: Array<[string, string]> = [];
         for (const { key } of envConfigs) {
-          // 1) 优先使用数据库中的最新值
-          const latest = dbManager.getLatestVersion(key);
-          let value: string | undefined = latest?.value;
-
-          // 2) 若数据库无记录，则尝试从配置的 .env 文件中读取
-          if (value == null || value === '') {
-            for (const file of configuredFiles) {
-              const abs = join(process.cwd(), file);
-              if (!envFileCache[abs]) {
-                envFileCache[abs] = await readEnvFile(abs);
-              }
-              const v = envFileCache[abs]?.[key];
-              if (v != null && v !== '') {
-                value = v;
-                break;
-              }
-            }
-          }
-
-          // 3) 没有拿到有效值则跳过
-          if (value == null || value === '') {
+          const value = envMap[key];
+          if (value != null && value !== '') {
+            taggedEntries.push([key, value]);
             if (options.verbose) {
-              console.log(chalk.gray(`   • Skip: ${key} has no value in db or env files`));
+              console.log(chalk.gray(`   ✓ Tagged: ${key} = ${value}`));
             }
-            continue;
-          }
-
-          // 创建带标签的版本（复制一条记录作为该 tag）
-          dbManager.createTaggedVersion(key, value, trimmedTagname, 'tag');
-          taggedCount++;
-          taggedVars.push({ key, value });
-
-          if (options.verbose) {
-            console.log(chalk.gray(`   ✓ Tagged: ${key} = ${value}`));
+          } else if (options.verbose) {
+            console.log(chalk.gray(`   • Skip: ${key} has no value to tag`));
           }
         }
+        const taggedCount = taggedEntries.length;
+        const taggedVars = taggedEntries.map(([k, v]) => ({ key: k, value: v }));
 
-        // 更新环境文件（如果配置了clone）
+        // 保存到 DB：一次性写入为该 tag 的键值集合
+        if (taggedCount > 0) {
+          await saveEnvs(configPath, Object.fromEntries(taggedEntries), trimmedTagname);
+        }
+
+        // 更新环境文件（如果配置了 files）
         if (config.files && taggedCount > 0) {
           console.log(chalk.blue('🔄 Updating environment files...'));
           try {
-            for (const { key, value } of taggedVars) {
-              const targetPath = getEnvTargetFiles(key, config);
-              if (targetPath && typeof targetPath === 'string') {
-                await updateEnvFileWithConfig(targetPath, { [key]: value }, config, true);
-              } else if (targetPath && Array.isArray(targetPath)) {
-                for (const path of targetPath) {
-                  await updateEnvFileWithConfig(path, { [key]: value }, config, true);
-                }
-              }
-            }
+            await writeEnvs(configPath, Object.fromEntries(taggedEntries));
             console.log(chalk.green('✅ Environment files updated'));
           } catch (error) {
             console.warn(
@@ -161,8 +118,6 @@ export function tagCommand(program: Command): void {
             );
           }
         }
-
-        dbManager.close();
 
         // 显示结果
         console.log(chalk.green(`\n✅ Tag "${trimmedTagname}" created successfully`));

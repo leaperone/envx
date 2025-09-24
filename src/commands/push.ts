@@ -2,9 +2,9 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { ConfigManager } from '../utils/config';
-import { createDatabaseManager } from '../utils/db';
-import { parseRef, buildPushUrl } from '../utils/url';
+import { ConfigManager } from '@/utils/config';
+import { getEnvs } from '@/utils/com';
+import { parseRef, buildPushUrl } from '@/utils/url';
 
 interface PushOptions {
   verbose?: boolean;
@@ -54,35 +54,19 @@ export function pushCommand(program: Command): void {
         // 解析 tag
         const tag = parsedUrl.tag || ref;
 
-        // 获取数据库管理器
-        const configDir = join(process.cwd(), (options.config || './envx.config.yaml'), '..');
-        const dbManager = createDatabaseManager(configDir);
+        // 使用 getEnvs 读取指定 tag 的变量
+        const envMap = await getEnvs(configPath, tag);
 
-        // 验证标签是否存在
-        const allTags = dbManager.getAllTags();
-        if (!allTags.includes(tag)) {
-          console.error(chalk.red(`❌ Error: Tag "${tag}" not found`));
-          console.log(chalk.yellow('Available tags:'));
-          allTags.forEach(t => console.log(chalk.gray(`  - ${t}`)));
-          dbManager.close();
-          process.exit(1);
-        }
-
-        // 获取标签下的环境变量
-        const tagStats = dbManager.getTagStats(tag);
-        if (tagStats.variables.length === 0) {
+        const entries = Object.entries(envMap);
+        if (entries.length === 0) {
           console.warn(chalk.yellow(`⚠️  Warning: No variables found for tag "${tag}"`));
-          dbManager.close();
           return;
         }
 
-        console.log(chalk.blue(`📋 Found ${tagStats.variables.length} variables for tag "${tag}"`));
+        console.log(chalk.blue(`📋 Found ${entries.length} variables for tag "${tag}"`));
 
         // 准备推送数据
-        const items = tagStats.variables.map(variable => ({
-          key: variable.key,
-          value: variable.value
-        }));
+        const items = entries.map(([key, value]) => ({ key, value }));
 
         // 获取当前时间戳
         const timestamp = new Date().toISOString();
@@ -145,7 +129,6 @@ export function pushCommand(program: Command): void {
             console.error(chalk.gray('Response data:'));
             console.error(chalk.gray(JSON.stringify(responseData.data, null, 2)));
           }
-          dbManager.close();
           process.exit(1);
         }
 
@@ -172,11 +155,8 @@ export function pushCommand(program: Command): void {
             console.error(chalk.gray('Response data:'));
             console.error(chalk.gray(JSON.stringify(responseData.data, null, 2)));
           }
-          dbManager.close();
           process.exit(1);
         }
-
-        dbManager.close();
 
       } catch (error) {
         console.error(

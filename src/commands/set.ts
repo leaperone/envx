@@ -2,15 +2,13 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { ConfigManager } from '../utils/config';
-import { createDatabaseManager } from '../utils/db';
-import { EnvConfig } from '../types/config';
+import { ConfigManager } from '@/utils/config';
+import { saveEnvs, writeEnvs } from '@/utils/com';
+import { EnvConfig } from '@/types/config';
 import { 
-  updateEnvFileWithConfig, 
   validateEnvKey, 
-  getEnvTargetFiles,
   isEnvRequired 
-} from '../utils/env';
+} from '@/utils/env';
 
 export function setCommand(program: Command): void {
   program
@@ -50,7 +48,7 @@ export function setCommand(program: Command): void {
         const oldValue = exists 
           ? (typeof config.env[key] === 'string' 
               ? config.env[key] as string 
-              : (config.env[key] as any)?.default || (config.env[key] as any)?.target || '')
+              : (config.env[key] as { default?: string; target?: string })?.default || (config.env[key] as { default?: string; target?: string })?.target || '')
           : '';
 
         if (exists && !options.force) {
@@ -87,19 +85,16 @@ export function setCommand(program: Command): void {
         configManager.setEnvVar(key, envConfig);
         configManager.save();
 
-        // 如果配置中有 clone URL，更新对应的环境变量文件
+        // 更新数据库（saveEnvs）
+        console.log(chalk.blue('🗄️  Updating database...'));
+        await saveEnvs(configPath, { [key]: value }, 'default');
+
+        // 写入环境文件（writeEnvs）
         if (config.files) {
           console.log(chalk.blue('🔄 Updating environment file based on clone configuration...'));
           try {
-            const targetPath = getEnvTargetFiles(key, config) || '.env';
-            if (targetPath && typeof targetPath === 'string') {
-              await updateEnvFileWithConfig(targetPath, { [key]: value }, config, options.force);
-            } else if (targetPath && Array.isArray(targetPath)) {
-              for (const path of targetPath) {
-                await updateEnvFileWithConfig(path, { [key]: value }, config, options.force);
-              }
-            }
-            console.log(chalk.green(`✅ Environment file updated: ${targetPath}`));
+            await writeEnvs(configPath, { [key]: value });
+            console.log(chalk.green('✅ Environment file updated'));
           } catch (error) {
             console.warn(
               chalk.yellow(
@@ -109,27 +104,9 @@ export function setCommand(program: Command): void {
           }
         }
 
-        // 更新数据库
-        console.log(chalk.blue('🗄️  Updating database...'));
-        const configDir = join(process.cwd(), options.config, '..');
-        const dbManager = createDatabaseManager(configDir);
-
-        // 记录操作到数据库
-        dbManager.addHistoryRecord({
-          key,
-          value,
-          timestamp: new Date().toISOString(),
-          action: exists ? 'updated' : 'created',
-          source: 'set',
-        });
-
-        dbManager.close();
-
         // 显示结果
-        const action = exists ? 'updated' : 'created';
-        console.log(chalk.green(`✅ Environment variable "${key}" ${action} successfully`));
+        console.log(chalk.green(`✅ Environment variable "${key}" saved successfully`));
         console.log(chalk.blue('\n📋 Summary:'));
-        console.log(chalk.gray(`   Action: ${action}`));
         console.log(chalk.gray(`   Key: ${key}`));
         console.log(chalk.gray(`   Value: ${value}`));
         

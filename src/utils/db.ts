@@ -1,15 +1,14 @@
 import Database from 'better-sqlite3';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { existsSync, mkdirSync } from 'fs';
+import { EnvMap } from '@/types/common';
 
 export interface EnvHistoryRecord {
   id?: number;
   key: string;
   value: string;
   timestamp: string;
-  action: 'created' | 'updated' | 'deleted';
-  source: string;
-  tag?: string;
+  tag: string;
 }
 
 export class DatabaseManager {
@@ -39,9 +38,7 @@ export class DatabaseManager {
         key TEXT NOT NULL,
         value TEXT NOT NULL,
         timestamp TEXT NOT NULL,
-        action TEXT NOT NULL,
-        source TEXT NOT NULL,
-        tag TEXT
+        tag TEXT NOT NULL
       )
     `);
 
@@ -49,81 +46,72 @@ export class DatabaseManager {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_env_history_key ON env_history(key);
       CREATE INDEX IF NOT EXISTS idx_env_history_timestamp ON env_history(timestamp);
-      CREATE INDEX IF NOT EXISTS idx_env_history_action ON env_history(action);
       CREATE INDEX IF NOT EXISTS idx_env_history_tag ON env_history(tag);
+      -- 为实现基于 (key, tag) 的 UPSERT，增加唯一索引
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_env_history_key_tag_unique ON env_history(key, tag);
     `);
+  }
 
-    // 迁移旧表结构，删除version字段
-    const columns = this.db.prepare(`PRAGMA table_info(env_history)`).all() as Array<{
-      cid: number; name: string; type: string; notnull: number; dflt_value: unknown; pk: number;
-    }>;
-    const versionCol = columns.find(c => c.name === 'version');
-    if (versionCol) {
-      const migrate = this.db.transaction(() => {
-        this.db.exec(`
-          CREATE TABLE IF NOT EXISTS env_history_new (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            key TEXT NOT NULL,
-            value TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            action TEXT NOT NULL,
-            source TEXT NOT NULL,
-            tag TEXT
-          );
-        `);
-        this.db.exec(`
-          INSERT INTO env_history_new (id, key, value, timestamp, action, source, tag)
-          SELECT id, key, value, timestamp, action, source, tag FROM env_history;
-        `);
-        this.db.exec(`DROP TABLE env_history;`);
-        this.db.exec(`ALTER TABLE env_history_new RENAME TO env_history;`);
-        this.db.exec(`
-          CREATE INDEX IF NOT EXISTS idx_env_history_key ON env_history(key);
-          CREATE INDEX IF NOT EXISTS idx_env_history_timestamp ON env_history(timestamp);
-          CREATE INDEX IF NOT EXISTS idx_env_history_action ON env_history(action);
-          CREATE INDEX IF NOT EXISTS idx_env_history_tag ON env_history(tag);
-        `);
-      });
-      migrate();
+  /**
+   * 获取下一个可用的 auto 标签编号
+   */
+  private getNextAutoTagNumber(): number {
+    const stmt = this.db.prepare(`
+        SELECT tag FROM env_history 
+        WHERE tag LIKE 'auto-%' 
+        ORDER BY CAST(SUBSTR(tag, 6) AS INTEGER) DESC 
+        LIMIT 1
+      `);
+
+    const result = stmt.get() as { tag: string } | undefined;
+    if (!result) {
+      return 1;
     }
+
+    const match = result.tag.match(/^auto-(\d+)$/);
+    if (!match || !match[1]) {
+      return 1;
+    }
+
+    return parseInt(match[1], 10) + 1;
   }
 
-
-  /**
-   * 添加环境变量历史记录
-   */
-  addHistoryRecord(record: Omit<EnvHistoryRecord, 'id'>): void {
+  batchUpsertTaggedValues(envs: EnvMap, tag?: string): void {
     const stmt = this.db.prepare(`
-      INSERT INTO env_history (key, value, timestamp, action, source, tag)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(record.key, record.value, record.timestamp, record.action, record.source, record.tag || null);
-  }
-
-  /**
-   * 批量添加环境变量历史记录
-   */
-  addHistoryRecords(records: Omit<EnvHistoryRecord, 'id'>[]): void {
-    const stmt = this.db.prepare(`
-      INSERT INTO env_history (key, value, timestamp, action, source, tag)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
+        INSERT INTO env_history (key, value, timestamp, tag)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(key, tag) DO UPDATE SET
+          value = excluded.value,
+          timestamp = excluded.timestamp
+      `);
 
     const transaction = this.db.transaction(() => {
-      for (const record of records) {
-        stmt.run(
-          record.key,
-          record.value,
-          record.timestamp,
-          record.action,
-          record.source,
-          record.tag || null
-        );
+      // 如果 tag 为空，生成 auto-xxx 标签
+      let currentTag = tag;
+      if (!currentTag) {
+        currentTag = `auto-${this.getNextAutoTagNumber()}`;
+      }
+
+      const timestamp = new Date().toISOString();
+      for (const [key, value] of Object.entries(envs)) {
+        if (value === undefined || value === null) continue;
+        stmt.run(key, String(value), timestamp, currentTag);
       }
     });
-
     transaction();
+  }
+
+  getTaggedValues(tag: string): EnvMap {
+    const stmt = this.db.prepare(`
+      SELECT key, value FROM env_history 
+      WHERE tag = ?
+    `);
+    const envMap: EnvMap = {};
+    const results = stmt.all(tag) as { key: string; value: string }[];
+    for (const result of results) {
+      envMap[result.key] = result.value;
+    }
+    return envMap;
   }
 
   /**
@@ -140,21 +128,6 @@ export class DatabaseManager {
     return stmt.all(key, limit) as EnvHistoryRecord[];
   }
 
-
-  /**
-   * 获取环境变量的最新记录
-   */
-  getLatestVersion(key: string): EnvHistoryRecord | null {
-    const stmt = this.db.prepare(`
-      SELECT * FROM env_history 
-      WHERE key = ?
-      ORDER BY timestamp DESC 
-      LIMIT 1
-    `);
-
-    return stmt.get(key) as EnvHistoryRecord | null;
-  }
-
   /**
    * 获取所有历史记录
    */
@@ -166,21 +139,6 @@ export class DatabaseManager {
     `);
 
     return stmt.all(limit) as EnvHistoryRecord[];
-  }
-
-  /**
-   * 清理旧的历史记录
-   */
-  cleanupOldRecords(daysToKeep: number = 30): void {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
-
-    const stmt = this.db.prepare(`
-      DELETE FROM env_history 
-      WHERE timestamp < ?
-    `);
-
-    stmt.run(cutoffDate.toISOString());
   }
 
   /**
@@ -216,19 +174,15 @@ export class DatabaseManager {
   /**
    * 根据tag获取历史记录
    */
-  getHistoryByTag(tag: string, limit: number = 50): EnvHistoryRecord[] {
+  getHistoryByTag(tag: string): EnvHistoryRecord[] {
     const stmt = this.db.prepare(`
       SELECT * FROM env_history 
       WHERE tag = ? 
-      ORDER BY timestamp DESC 
-      LIMIT ?
+      ORDER BY timestamp DESC;
     `);
 
-    return stmt.all(tag, limit) as EnvHistoryRecord[];
+    return stmt.all(tag) as EnvHistoryRecord[];
   }
-
-
-
 
   /**
    * 获取所有标签列表
@@ -236,65 +190,11 @@ export class DatabaseManager {
   getAllTags(): string[] {
     const stmt = this.db.prepare(`
       SELECT DISTINCT tag FROM env_history 
-      WHERE tag IS NOT NULL 
       ORDER BY tag ASC
     `);
 
     const results = stmt.all() as { tag: string }[];
     return results.map(r => r.tag);
-  }
-
-  /**
-   * 为指定key创建带标签的记录
-   */
-  createTaggedVersion(key: string, value: string, tag: string, source: string = 'tag'): void {
-    const stmt = this.db.prepare(`
-      INSERT INTO env_history (key, value, timestamp, action, source, tag)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(key, value, new Date().toISOString(), 'updated', source, tag);
-  }
-
-  /**
-   * 覆盖更新：按 tag 覆盖该 key 的 tagged 记录。若不存在则创建一条 tagged 记录。
-   */
-  upsertTaggedValue(key: string, value: string, tag: string, source: string = 'pull'): void {
-    const now = new Date().toISOString();
-    const updateStmt = this.db.prepare(`
-      UPDATE env_history
-      SET value = ?, timestamp = ?, action = 'updated', source = ?
-      WHERE key = ? AND tag = ?
-    `);
-    const res = updateStmt.run(value, now, source, key, tag);
-    if (res.changes === 0) {
-      this.createTaggedVersion(key, value, tag, source);
-    }
-  }
-
-  /**
-   * 覆盖更新：覆盖该 key 最新的记录的值。若不存在任何记录，则新增一条记录。
-   */
-  upsertLatestVersionedValue(key: string, value: string, source: string = 'pull'): void {
-    const now = new Date().toISOString();
-    const latest = this.getLatestVersion(key);
-    if (latest) {
-      const updateStmt = this.db.prepare(`
-        UPDATE env_history
-        SET value = ?, timestamp = ?, action = 'updated', source = ?
-        WHERE id = ?
-      `);
-      updateStmt.run(value, now, source, latest.id);
-    } else {
-      const record: Omit<EnvHistoryRecord, 'id'> = {
-        key,
-        value,
-        timestamp: now,
-        action: 'updated',
-        source,
-      };
-      this.addHistoryRecord(record);
-    }
   }
 
   /**
@@ -305,9 +205,11 @@ export class DatabaseManager {
     uniqueKeys: number;
     firstCreated: string | null;
     lastUpdated: string | null;
-    variables: Array<{key: string, value: string}>;
+    variables: Array<{ key: string; value: string }>;
   } {
-    const totalRecords = this.db.prepare('SELECT COUNT(*) as count FROM env_history WHERE tag = ?').get(tag) as {
+    const totalRecords = this.db
+      .prepare('SELECT COUNT(*) as count FROM env_history WHERE tag = ?')
+      .get(tag) as {
       count: number;
     };
     const uniqueKeys = this.db
@@ -326,14 +228,14 @@ export class DatabaseManager {
       WHERE tag = ? 
       ORDER BY key ASC, timestamp DESC
     `);
-    const variables = variablesStmt.all(tag) as Array<{key: string, value: string}>;
+    const variables = variablesStmt.all(tag) as Array<{ key: string; value: string }>;
 
     return {
       totalRecords: totalRecords.count,
       uniqueKeys: uniqueKeys.count,
       firstCreated: firstCreated.timestamp,
       lastUpdated: lastUpdated.timestamp,
-      variables
+      variables,
     };
   }
 
@@ -355,7 +257,6 @@ export class DatabaseManager {
         MIN(timestamp) as firstCreated,
         MAX(timestamp) as lastUpdated
       FROM env_history 
-      WHERE tag IS NOT NULL 
       GROUP BY tag 
       ORDER BY lastUpdated DESC
     `);
@@ -381,5 +282,15 @@ export class DatabaseManager {
  * 创建数据库管理器的工厂函数
  */
 export function createDatabaseManager(configDir: string): DatabaseManager {
+  return new DatabaseManager(configDir);
+}
+
+/**
+ * 基于配置文件路径创建数据库管理器
+ * 传入完整的配置文件路径，例如 /path/to/envx.config.yaml
+ * 将自动取其所在目录作为数据库根目录（即 ${dir}/.envx/envx.db）
+ */
+export function createDatabaseManagerFromConfigPath(configPath: string): DatabaseManager {
+  const configDir = dirname(configPath);
   return new DatabaseManager(configDir);
 }

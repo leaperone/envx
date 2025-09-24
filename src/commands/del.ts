@@ -2,9 +2,9 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { ConfigManager } from '../utils/config';
-import { createDatabaseManager } from '../utils/db';
-import { delEnv, unsetEnv } from '../utils/env';
+import { ConfigManager } from '@/utils/config';
+import { getEnvs, saveEnvs, writeEnvs } from '@/utils/com';
+import { unsetEnv } from '@/utils/env';
 
 export function delCommand(program: Command): void {
   program
@@ -77,28 +77,21 @@ export function delCommand(program: Command): void {
         }
         configManager.save();
 
-        if (config.files) {
-          await delEnv(key, config.files);
-        }
         // 从当前 shell 环境中取消设置环境变量
         console.log(chalk.blue('🔄 Unsetting environment variable from current shell...'));
         await unsetEnv(key);
 
-        // 更新数据库
+        // 使用 saveEnvs 同步当前（已删除该键）的环境到 DB 的默认标签
         console.log(chalk.blue('🗄️  Updating database...'));
-        const configDir = join(process.cwd(), options.config, '..');
-        const dbManager = createDatabaseManager(configDir);
+        const envMap = await getEnvs(configPath);
+        await saveEnvs(configPath, envMap, 'default');
 
-        // 记录删除操作到数据库
-        dbManager.addHistoryRecord({
-          key,
-          value: currentValue,
-          timestamp: new Date().toISOString(),
-          action: 'deleted',
-          source: 'del',
-        });
-
-        dbManager.close();
+        // 使用 writeEnvs 重写环境文件，去除已删除的键
+        if (config.files) {
+          console.log(chalk.blue('🔄 Updating environment files...'));
+          await writeEnvs(configPath, envMap);
+          console.log(chalk.green('✅ Environment files updated'));
+        }
 
         console.log(chalk.green(`✅ Environment variable "${key}" deleted successfully`));
         console.log(chalk.blue('\n📋 Summary:'));

@@ -1,9 +1,7 @@
 import { promises as fs } from 'fs';
-import { EnvxConfig } from '../types/config';
-import { ShellKind } from '../types/common';
+import { EnvxConfig } from '@/types/config';
+import { EnvMap, ShellKind } from '@/types/common';
 import { spawn } from 'child_process';
-
-export type EnvMap = Record<string, string>;
 
 /**
  * 解析环境变量文件内容
