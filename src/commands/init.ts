@@ -68,7 +68,7 @@ export function initCommand(program: Command): void {
         }
 
         // 创建基础配置
-        const configManager = new ConfigManager(configOutputPath);
+        const configManager = new ConfigManager(configOutputPath, { allowMissing: true });
         const baseConfig = configManager.createBaseConfig(envs, options.file);
 
         // 保存配置文件

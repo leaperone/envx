@@ -7,15 +7,18 @@ export class ConfigManager {
   private config: EnvxConfig;
   private configPath: string;
 
-  constructor(configPath: string = './envx.config.yaml') {
+  constructor(
+    configPath: string = './envx.config.yaml',
+    options: { allowMissing?: boolean } = {}
+  ) {
     this.configPath = configPath;
-    this.config = this.loadConfig();
+    this.config = this.loadConfig(options.allowMissing === true);
   }
 
   /**
    * 加载配置文件
    */
-  private loadConfig(): EnvxConfig {
+  private loadConfig(allowMissing: boolean): EnvxConfig {
     if (existsSync(this.configPath)) {
       const result = ConfigParser.parseFromFile(this.configPath);
       if (result.validation.isValid) {
@@ -24,6 +27,9 @@ export class ConfigManager {
         const errors = result.validation.errors.join(', ');
         throw new Error(`配置文件验证失败: ${errors}`);
       }
+    }
+    if (allowMissing) {
+      return ConfigParser.getDefaultConfig();
     }
     throw new Error(`配置文件不存在: ${this.configPath}`);
   }
