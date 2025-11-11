@@ -2,7 +2,7 @@
  * URL 解析工具
  */
 
-export const DEFAULT_BASE_URL = 'https://2some.one';
+export const DEFAULT_BASE_URL = 'https://leaper.one';
 
 export interface ParsedUrl {
   baseUrl: string;

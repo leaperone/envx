@@ -20,10 +20,10 @@ envx pull deployment-v1.2.3 --remote https://api.example.com --namespace product
 
 ### 3. 使用默认 base URL
 ```bash
-# 不指定任何 URL，自动使用默认的 https://2some.one
+# 不指定任何 URL，自动使用默认的 https://leaper.one
 envx pull deployment-v1.2.3 --namespace production --project myapp
 
-# 实际请求会发送到: https://2some.one/api/v1/envx/production/myapp?tag=deployment-v1.2.3
+# 实际请求会发送到: https://leaper.one/api/v1/envx/production/myapp?tag=deployment-v1.2.3
 ```
 
 ### 4. 拉取特定环境变量
@@ -31,7 +31,7 @@ envx pull deployment-v1.2.3 --namespace production --project myapp
 # 只拉取特定的环境变量
 envx pull deployment-v1.2.3 --key DATABASE_URL --namespace production --project myapp
 
-# 实际请求会发送到: https://2some.one/api/v1/envx/production/myapp?tag=deployment-v1.2.3&key=DATABASE_URL
+# 实际请求会发送到: https://leaper.one/api/v1/envx/production/myapp?tag=deployment-v1.2.3&key=DATABASE_URL
 ```
 
 ## 功能特性
