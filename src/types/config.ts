@@ -35,6 +35,7 @@ export interface DevConfig {
   baseUrl?: string;
   namespace?: string;
   project?: string;
+  apiKey?: string;
 }
 
 export interface DevConfigParseResult {

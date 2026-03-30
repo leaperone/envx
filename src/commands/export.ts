@@ -4,6 +4,7 @@ import { spawn } from 'child_process';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { getEnvs } from '@/utils/com';
+import { detectDefaultShell, detectInteractiveShellProgram, generateExportCommand } from '@/utils/env';
 
 type ShellKind = 'sh' | 'cmd' | 'powershell';
 
@@ -14,32 +15,6 @@ interface ExportOptions {
   exec?: string;
   print?: boolean;
   config?: string;
-}
-
-function serializeLine(key: string, value: string, shell: ShellKind): string {
-  const escaped = value.replace(/"/g, '\\"');
-  if (shell === 'cmd') return `set ${key}="${escaped}"`;
-  if (shell === 'powershell') return `$Env:${key} = "${escaped}"`;
-  return `export ${key}="${escaped}"`;
-}
-
-function detectDefaultShell(): ShellKind {
-  if (process.platform === 'win32') {
-    return 'powershell';
-  }
-  return 'sh';
-}
-
-function detectInteractiveShellProgram(shell: ShellKind): { program: string; args: string[] } {
-  if (process.platform === 'win32') {
-    if (shell === 'powershell') return { program: 'powershell.exe', args: ['-NoExit'] };
-    if (shell === 'cmd') return { program: 'cmd.exe', args: ['/K'] };
-    // Fallback to PowerShell
-    return { program: 'powershell.exe', args: ['-NoExit'] };
-  }
-  // POSIX
-  const userShell = process.env.SHELL || '/bin/sh';
-  return { program: userShell, args: ['-i'] };
 }
 
 export function exportCommand(program: Command): void {
@@ -85,7 +60,7 @@ export function exportCommand(program: Command): void {
 
         // Only print if explicitly requested
         if (options.print) {
-          const lines = Object.entries(envMap).map(([k, v]) => serializeLine(k, v, shell));
+          const lines = Object.entries(envMap).map(([k, v]) => generateExportCommand(k, v, shell));
           const output = lines.join('\n');
           if (options.verbose) {
             console.log(chalk.gray('\n# Commands to set variables in your current shell'));

@@ -149,8 +149,8 @@ export async function fetchRemoteEnv(url: string): Promise<EnvMap> {
  * 验证环境变量键名是否有效
  */
 export function validateEnvKey(key: string): boolean {
-  // 环境变量键名规则：只能包含字母、数字和下划线，且不能以数字开头
-  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key);
+  // 环境变量键名规则：只能包含字母、数字、下划线和连字符，且不能以数字开头
+  return /^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(key);
 }
 
 /**

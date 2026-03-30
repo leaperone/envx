@@ -10,6 +10,7 @@ interface HistoryOptions {
   format?: 'table' | 'json';
   verbose?: boolean;
   list?: boolean;
+  limit?: string;
 }
 
 export function historyCommand(program: Command): void {
@@ -25,6 +26,7 @@ export function historyCommand(program: Command): void {
     .option('-f, --format <format>', 'Output format: table | json (default: table)', 'table')
     .option('-v, --verbose', 'Show detailed information including full values')
     .option('-l, --list', 'List all available tags')
+    .option('-n, --limit <number>', 'Maximum number of records to show')
     .action(async (tag: string | undefined, options: HistoryOptions) => {
       try {
         const configPath = join(process.cwd(), options.config || './envx.config.yaml');
@@ -130,24 +132,19 @@ export function historyCommand(program: Command): void {
           }
 
           let records: EnvHistoryRecord[] = [];
+          const limit = options.limit ? parseInt(options.limit, 10) : undefined;
 
-          // 检查是否有任何过滤条件
-          const hasFilters = options.key;
-
-          if (hasFilters) {
-            // 有过滤条件时，获取过滤后的记录
-            if (options.key) {
-              console.log(chalk.gray(`🔍 Filtering by key: ${options.key} in tag: ${tag}`));
-              const tagRecords = dbManager.getHistoryByTag(tag);
-              records = tagRecords.filter(record => record.key === options.key);
-            } else {
-              console.log(chalk.gray(`🔍 Filtering by tag: ${tag}`));
-              records = dbManager.getHistoryByTag(tag);
-            }
+          if (options.key) {
+            console.log(chalk.gray(`🔍 Filtering by key: ${options.key} in tag: ${tag}`));
+            const tagRecords = dbManager.getHistoryByTag(tag);
+            records = tagRecords.filter(record => record.key === options.key);
           } else {
-            // 没有过滤条件时，获取指定 tag 的所有记录
             console.log(chalk.gray(`🔍 Getting all records for tag: ${tag}`));
             records = dbManager.getHistoryByTag(tag);
+          }
+
+          if (limit && limit > 0) {
+            records = records.slice(0, limit);
           }
 
           if (records.length === 0) {

@@ -18,38 +18,72 @@ export class DatabaseManager {
   constructor(configDir: string) {
     // 确保 .envx 目录存在
     const envxDir = join(configDir, '.envx');
-    if (!existsSync(envxDir)) {
-      mkdirSync(envxDir, { recursive: true });
+    try {
+      if (!existsSync(envxDir)) {
+        mkdirSync(envxDir, { recursive: true });
+      }
+    } catch (err) {
+      throw new Error(`Failed to create .envx directory at ${envxDir}: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     this.dbPath = join(envxDir, 'envx.db');
-    this.db = new Database(this.dbPath);
+    try {
+      this.db = new Database(this.dbPath);
+    } catch (err) {
+      throw new Error(`Failed to open database at ${this.dbPath}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
     this.initDatabase();
   }
+
+  private static readonly SCHEMA_VERSION = 2;
 
   /**
    * 初始化数据库表结构
    */
   private initDatabase(): void {
-    // 创建环境变量历史记录表
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS env_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        key TEXT NOT NULL,
-        value TEXT NOT NULL,
-        timestamp TEXT NOT NULL,
-        tag TEXT NOT NULL
-      )
-    `);
+    try {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS schema_version (
+          version INTEGER NOT NULL
+        )
+      `);
 
-    // 创建索引以提高查询性能
-    this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_env_history_key ON env_history(key);
-      CREATE INDEX IF NOT EXISTS idx_env_history_timestamp ON env_history(timestamp);
-      CREATE INDEX IF NOT EXISTS idx_env_history_tag ON env_history(tag);
-      -- 为实现基于 (key, tag) 的 UPSERT，增加唯一索引
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_env_history_key_tag_unique ON env_history(key, tag);
-    `);
+      const row = this.db.prepare('SELECT version FROM schema_version LIMIT 1').get() as { version: number } | undefined;
+      const currentVersion = row?.version ?? 0;
+
+      if (currentVersion < 1) {
+        // Initial schema
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS env_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            tag TEXT NOT NULL
+          )
+        `);
+        this.db.exec(`
+          CREATE INDEX IF NOT EXISTS idx_env_history_key ON env_history(key);
+          CREATE INDEX IF NOT EXISTS idx_env_history_timestamp ON env_history(timestamp);
+          CREATE INDEX IF NOT EXISTS idx_env_history_tag ON env_history(tag);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_env_history_key_tag_unique ON env_history(key, tag);
+        `);
+      }
+
+      // Future migrations go here:
+      // if (currentVersion < 2) { ... }
+
+      if (currentVersion < DatabaseManager.SCHEMA_VERSION) {
+        if (currentVersion === 0) {
+          this.db.exec(`INSERT INTO schema_version (version) VALUES (${DatabaseManager.SCHEMA_VERSION})`);
+        } else {
+          this.db.exec(`UPDATE schema_version SET version = ${DatabaseManager.SCHEMA_VERSION}`);
+        }
+      }
+    } catch (err) {
+      throw new Error(`Failed to initialize database schema: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /**

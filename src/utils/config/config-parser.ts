@@ -163,7 +163,7 @@ export class ConfigParser {
     const result: Array<{ key: string; config: EnvConfig }> = [];
 
     for (const [key, value] of Object.entries(config.env)) {
-      result.push({ key, config: this.getEnvVar(value as EnvConfig, key) });
+      result.push({ key, config: this.normalizeEnvValue(value, key) });
     }
 
     return result;
@@ -177,32 +177,45 @@ export class ConfigParser {
   }
 
   /**
-   * 获取环境变量配置
+   * 将 env 配置项的各种格式（string / EnvConfig / undefined / null）
+   * 统一转换为 EnvConfig 对象
    */
-  static getEnvVar(config: EnvConfig, key: string): EnvConfig {
-    if (config === null) {
+  static normalizeEnvValue(value: EnvTarget | EnvConfig | undefined | null, key: string): EnvConfig {
+    if (value === null || value === undefined) {
       return this.getDefaultEnvConfig(key);
     }
+    if (typeof value === 'string') {
+      // 简写格式: KEY: ".env" — string 作为 target
+      return { ...this.getDefaultEnvConfig(key), target: value };
+    }
+    // 完整对象格式
     return {
-      target: config.target || key,
-      files: config.files || undefined,
-      default: config.default || undefined,
-      description: config.description || undefined,
-      required: config.required || false,
+      target: value.target || key,
+      files: value.files || undefined,
+      default: value.default || undefined,
+      description: value.description || undefined,
+      required: value.required || false,
     };
+  }
+
+  /**
+   * 获取环境变量配置（兼容旧调用）
+   */
+  static getEnvVar(config: EnvxConfig, key: string): EnvConfig {
+    return this.normalizeEnvValue(config.env[key], key);
   }
 
   /**
    * 获取环境变量的目标源
    */
   static getEnvVarTarget(config: EnvxConfig, key: string): string | undefined {
-    return this.getEnvVar(config.env[key] as EnvConfig, key).target;
+    return this.getEnvVar(config, key).target;
   }
 
   /**
    * 获取环境变量的默认值
    */
   static getEnvVarDefault(config: EnvxConfig, key: string): string | undefined {
-    return this.getEnvVar(config.env[key] as EnvConfig, key).default;
+    return this.getEnvVar(config, key).default;
   }
 }

@@ -169,26 +169,14 @@ export class ConfigManager {
    * 获取环境变量
    */
   getEnvVar(key: string): EnvTarget | EnvConfig | string {
-    const value = ConfigParser.getEnvVar(this.config, key);
+    const config = ConfigParser.getEnvVar(this.config, key);
 
-    if (value === undefined) {
-      // 如果值为 undefined，返回 key 本身
-      return key;
-    } else if (typeof value === 'object' && value !== null) {
-      const config = value as EnvConfig;
-      if (config.default !== undefined) {
-        // 如果有默认值，返回默认值
-        return config.default;
-      } else if (config.target) {
-        // 如果有 target，返回 target
-        return config.target;
-      } else {
-        // 如果没有 target 且没有默认值，返回 key 本身
-        return key;
-      }
+    if (config.default !== undefined) {
+      return config.default;
+    } else if (config.target) {
+      return config.target;
     } else {
-      // 如果是简单值，直接返回
-      return value;
+      return key;
     }
   }
 
@@ -282,9 +270,15 @@ export class ConfigManager {
 
   /**
    * 获取 dev 默认配置
+   * 从环境变量中尝试填充缺省值
    */
   getDefaultDevConfig(): DevConfig {
-    return {};
+    return {
+      baseUrl: process.env.ENVX_BASEURL,
+      namespace: process.env.ENVX_NAMESPACE,
+      project: process.env.ENVX_PROJECT,
+      apiKey: process.env.ENVX_API_KEY,
+    };
   }
 
   /**

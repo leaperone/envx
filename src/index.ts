@@ -2,6 +2,7 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
+import { createRequire } from 'module';
 import { versionCommand } from './commands/version.js';
 import { initCommand } from './commands/init.js';
 import { exportCommand } from './commands/export.js';
@@ -14,13 +15,16 @@ import { tagCommand } from './commands/tag.js';
 import { pushCommand } from './commands/push.js';
 import { pullCommand } from './commands/pull.js';
 
+const require = createRequire(import.meta.url);
+const { version } = require('../package.json');
+
 const program = new Command();
 
 // 设置基本信息
 program
   .name('envx')
   .description(chalk.blue('A powerful environment management CLI tool'))
-  .version('1.0.0');
+  .version(version);
 
 // 添加命令
 versionCommand(program);

@@ -129,11 +129,17 @@ export function pullCommand(program: Command): void {
           throw new Error('fetch is not available in this Node.js runtime. Please use Node 18+');
         }
 
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        const apiKey = devConfigResult.config.apiKey || process.env.ENVX_API_KEY;
+        if (apiKey) {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+
         const response = await fetchFn(fullUrl, {
           method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers,
         });
 
         const responseData = (await response.json()) as {
