@@ -97,7 +97,7 @@ export function initCommand(program: Command): void {
           console.log(chalk.blue('\n🔧 Next steps:'));
           console.log(chalk.gray('   1. Review and customize the generated config file'));
           console.log(chalk.gray('   2. Add descriptions, targets, and other configurations'));
-          console.log(chalk.gray('   3. Use "envx clone" to sync with your .env file'));
+          console.log(chalk.gray('   3. Use "envx load --all" to load variables from database'));
           console.log(chalk.gray('   4. Use "envx export" to generate environment variables'));
         }
 

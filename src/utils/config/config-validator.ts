@@ -56,9 +56,15 @@ export class ConfigValidator {
       errors.push('export 字段必须是布尔类型');
     }
 
-    // clone 字段验证
-    if (config.files !== undefined && typeof config.files !== 'string') {
-      errors.push('clone 字段必须是字符串类型');
+    // files 字段验证
+    if (config.files !== undefined) {
+      if (Array.isArray(config.files)) {
+        if (!config.files.every((f: unknown) => typeof f === 'string')) {
+          errors.push('files 字段数组中的每个元素必须是字符串类型');
+        }
+      } else if (typeof config.files !== 'string') {
+        errors.push('files 字段必须是字符串或字符串数组类型');
+      }
     }
 
     // env 字段验证
