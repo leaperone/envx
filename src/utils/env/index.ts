@@ -224,7 +224,7 @@ export async function unsetEnv(key: string | string[]): Promise<void> {
 /**
  * 检测默认shell
  */
-export function detectDefaultShell(): string {
+export function detectDefaultShell(): ShellKind {
   const shell = process.env.SHELL || process.env.COMSPEC || 'sh';
 
   if (shell.includes('bash')) return 'bash';

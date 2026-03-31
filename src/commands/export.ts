@@ -5,8 +5,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { getEnvs } from '@/utils/com';
 import { detectDefaultShell, detectInteractiveShellProgram, generateExportCommand } from '@/utils/env';
-
-type ShellKind = 'sh' | 'cmd' | 'powershell';
+import { ShellKind } from '@/types/common';
 
 interface ExportOptions {
   verbose?: boolean;
