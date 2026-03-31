@@ -14,6 +14,9 @@ import { loadCommand } from './commands/load.js';
 import { tagCommand } from './commands/tag.js';
 import { pushCommand } from './commands/push.js';
 import { pullCommand } from './commands/pull.js';
+import { loginCommand } from './commands/login.js';
+import { logoutCommand } from './commands/logout.js';
+import { whoamiCommand } from './commands/whoami.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
@@ -38,6 +41,9 @@ loadCommand(program);
 tagCommand(program);
 pushCommand(program);
 pullCommand(program);
+loginCommand(program);
+logoutCommand(program);
+whoamiCommand(program);
 
 // 默认命令
 program

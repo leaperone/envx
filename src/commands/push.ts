@@ -5,6 +5,7 @@ import { join } from 'path';
 import { ConfigManager } from '@/utils/config';
 import { getEnvs } from '@/utils/com';
 import { parseRef, buildPushUrl } from '@/utils/url';
+import { getCredential } from '@/utils/credentials';
 
 interface PushOptions {
   verbose?: boolean;
@@ -111,10 +112,12 @@ export function pushCommand(program: Command): void {
         const headers: Record<string, string> = {
           'Content-Type': 'application/json',
         };
-        const apiKey = devConfigResult.config.apiKey || process.env.ENVX_API_KEY;
-        if (apiKey) {
-          headers['Authorization'] = `Bearer ${apiKey}`;
+        const apiKey = devConfigResult.config.apiKey || process.env.ENVX_API_KEY || getCredential();
+        if (!apiKey) {
+          console.error(chalk.red('❌ Not authenticated. Run `envx login` first, or set ENVX_API_KEY.'));
+          process.exit(1);
         }
+        headers['Authorization'] = `Bearer ${apiKey}`;
 
         const response = await fetchFn(remoteUrl, {
           method: 'POST',
@@ -129,8 +132,12 @@ export function pushCommand(program: Command): void {
         };
 
         if (!response.ok) {
-          console.error(chalk.red(`❌ Error: Remote server returned ${response.status}`));
-          console.error(chalk.red(`Message: ${responseData.msg || 'Unknown error'}`));
+          if (response.status === 401) {
+            console.error(chalk.red('❌ Authentication failed. Run `envx login` to re-authenticate.'));
+          } else {
+            console.error(chalk.red(`❌ Error: Remote server returned ${response.status}`));
+            console.error(chalk.red(`Message: ${responseData.msg || 'Unknown error'}`));
+          }
           if (options.verbose && responseData.data) {
             console.error(chalk.gray('Response data:'));
             console.error(chalk.gray(JSON.stringify(responseData.data, null, 2)));
