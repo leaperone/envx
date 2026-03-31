@@ -47,6 +47,31 @@ export function tagCommand(program: Command): void {
 
         const trimmedTagname = tagname.trim();
 
+        if (trimmedTagname.length > 128) {
+          console.error(chalk.red('❌ Error: Tag name must be 128 characters or less'));
+          process.exit(1);
+        }
+
+        if (!/^[a-zA-Z0-9._-]+$/.test(trimmedTagname)) {
+          console.error(chalk.red('❌ Error: Tag name can only contain letters, numbers, dots, hyphens, and underscores'));
+          process.exit(1);
+        }
+
+        if (trimmedTagname === 'latest') {
+          const { confirmLatest } = await inquirer.prompt([
+            {
+              type: 'confirm',
+              name: 'confirmLatest',
+              message: '"latest" is the default tag name used by envx. Are you sure you want to use it?',
+              default: false,
+            },
+          ]);
+          if (!confirmLatest) {
+            console.log(chalk.yellow('❌ Tag creation cancelled'));
+            return;
+          }
+        }
+
         // 检查标签是否已存在（通过尝试读取该 tag 的 envs）
         const existingTagEnvs = await getEnvs(configPath, trimmedTagname);
         if (Object.keys(existingTagEnvs).length > 0) {
