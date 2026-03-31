@@ -76,9 +76,9 @@ export class DatabaseManager {
 
       if (currentVersion < DatabaseManager.SCHEMA_VERSION) {
         if (currentVersion === 0) {
-          this.db.exec(`INSERT INTO schema_version (version) VALUES (${DatabaseManager.SCHEMA_VERSION})`);
+          this.db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(DatabaseManager.SCHEMA_VERSION);
         } else {
-          this.db.exec(`UPDATE schema_version SET version = ${DatabaseManager.SCHEMA_VERSION}`);
+          this.db.prepare('UPDATE schema_version SET version = ?').run(DatabaseManager.SCHEMA_VERSION);
         }
       }
     } catch (err) {
