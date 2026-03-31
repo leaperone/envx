@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { existsSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { createDatabaseManagerFromConfigPath, EnvHistoryRecord } from '@/utils/db';
 
 interface HistoryOptions {
@@ -30,7 +30,7 @@ export function historyCommand(program: Command): void {
     .action(async (tag: string | undefined, options: HistoryOptions) => {
       try {
         const configPath = join(process.cwd(), options.config || './envx.config.yaml');
-        const configDir = join(process.cwd(), options.config || './envx.config.yaml', '..');
+        const configDir = dirname(configPath);
 
         console.log(chalk.blue('📚 Viewing environment variable history...'));
         console.log(chalk.gray(`📁 Config file: ${options.config}`));
