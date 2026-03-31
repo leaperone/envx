@@ -219,6 +219,30 @@ export class ConfigValidator {
   }
 
   /**
+   * 从 target 字符串中提取引用的环境变量键名
+   * 支持格式：
+   * - @username/project/key -> key
+   * - 直接键名（存在于 config.env 中）-> 键名本身
+   */
+  private static extractReferencedKey(config: EnvxConfig, target: string): string | null {
+    // @username/project/key 格式：提取最后一段作为 key
+    const match = target.match(/^@[^/]+\/[^/]+\/([^/]+)$/);
+    if (match) {
+      const key = match[1];
+      if (key in config.env) {
+        return key;
+      }
+    }
+
+    // 直接键名引用
+    if (target in config.env) {
+      return target;
+    }
+
+    return null;
+  }
+
+  /**
    * 检查循环引用
    */
   private static hasCircularReference(
@@ -234,8 +258,12 @@ export class ConfigValidator {
     const current = config.env[currentKey];
 
     if (typeof current === 'object' && current !== null && current.target) {
-      // 这里可以添加更复杂的循环引用检测逻辑
-      // 目前只是简单的检查
+      const referencedKey = this.extractReferencedKey(config, current.target);
+      if (referencedKey) {
+        if (this.hasCircularReference(config, referencedKey, visited)) {
+          return true;
+        }
+      }
     }
 
     visited.delete(currentKey);
