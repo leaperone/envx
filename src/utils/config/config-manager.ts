@@ -1,4 +1,5 @@
 import { writeFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
+import { dirname } from 'path';
 import { stringify } from 'yaml';
 import { ConfigParser } from './config-parser';
 import { EnvxConfig, EnvConfig, EnvTarget, DevConfig, DevConfigParseResult } from '.';
@@ -40,7 +41,7 @@ export class ConfigManager {
   save(): void {
     try {
       // 确保目录存在
-      const dir = this.configPath.substring(0, this.configPath.lastIndexOf('/'));
+      const dir = dirname(this.configPath);
       if (dir && !existsSync(dir)) {
         mkdirSync(dir, { recursive: true });
       }
