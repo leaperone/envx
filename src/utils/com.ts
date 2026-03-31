@@ -19,9 +19,12 @@ export async function getEnvs(configPath: string, tag?: string): Promise<EnvMap>
 
   if (tag) {
     const dbManager = createDatabaseManagerFromConfigPath(configPath);
-    envMap = dbManager.getTaggedValues(tag);
-    dbManager.close();
-    return envMap;
+    try {
+      envMap = dbManager.getTaggedValues(tag);
+      return envMap;
+    } finally {
+      dbManager.close();
+    }
   }
 
   // 合并 .env 文件内容
@@ -56,10 +59,11 @@ export async function getEnvs(configPath: string, tag?: string): Promise<EnvMap>
 
 export async function saveEnvs(configPath: string, envMap: EnvMap, tag?: string) {
   const dbManager = createDatabaseManagerFromConfigPath(configPath);
-
-  dbManager.batchUpsertTaggedValues(envMap, tag);
-
-  dbManager.close();
+  try {
+    dbManager.batchUpsertTaggedValues(envMap, tag);
+  } finally {
+    dbManager.close();
+  }
 }
 
 export async function writeEnvs(configPath: string, envMap: EnvMap) {
