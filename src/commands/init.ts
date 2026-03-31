@@ -81,8 +81,12 @@ export function initCommand(program: Command): void {
         await saveEnvs(configOutputPath, envs, 'init');
         // 获取数据库统计信息
         const dbManager = createDatabaseManagerFromConfigPath(configOutputPath);
-        const dbStats = dbManager.getStats();
-        dbManager.close();
+        let dbStats;
+        try {
+          dbStats = dbManager.getStats();
+        } finally {
+          dbManager.close();
+        }
 
         console.log(chalk.green(`✅ Configuration file created successfully: ${options.output}`));
         console.log(chalk.green(`🗄️  Database initialized successfully: .envx/envx.db`));
