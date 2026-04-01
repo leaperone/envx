@@ -92,10 +92,11 @@ function browserLogin(baseUrl: string): Promise<string> {
       openBrowser(authUrl);
     });
 
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       server.close();
       reject(new Error('Authorization timed out (3 minutes)'));
     }, 3 * 60 * 1000);
+    timer.unref();
   });
 }
 
