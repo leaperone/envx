@@ -6,6 +6,7 @@ import { ConfigManager } from '@/utils/config';
 import { getEnvs } from '@/utils/com';
 import { parseRef, buildPushUrl } from '@/utils/url';
 import { getCredential } from '@/utils/credentials';
+import { fetchWithRetry } from '@/utils/http';
 
 interface PushOptions {
   verbose?: boolean;
@@ -86,29 +87,7 @@ export function pushCommand(program: Command): void {
 
         // 发送 HTTP 请求
         console.log(chalk.blue('📤 Sending data to remote server...'));
-        
-        type MinimalResponse = {
-          ok: boolean;
-          status: number;
-          statusText: string;
-          json(): Promise<unknown>;
-        };
 
-        type MinimalRequestInit = {
-          method?: string;
-          headers?: Record<string, string>;
-          body?: string;
-        };
-
-        type MinimalFetch = (input: string, init?: MinimalRequestInit) => Promise<MinimalResponse>;
-
-        const fetchFn: MinimalFetch | undefined = (globalThis as unknown as { fetch?: MinimalFetch })
-          .fetch;
-
-        if (!fetchFn) {
-          throw new Error('fetch is not available in this Node.js runtime. Please use Node 18+');
-        }
-        
         const headers: Record<string, string> = {
           'Content-Type': 'application/json',
         };
@@ -119,10 +98,11 @@ export function pushCommand(program: Command): void {
         }
         headers['Authorization'] = `Bearer ${apiKey}`;
 
-        const response = await fetchFn(remoteUrl, {
+        const response = await fetchWithRetry(remoteUrl, {
           method: 'POST',
           headers,
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          verbose: options.verbose,
         });
 
         const responseData = await response.json() as {
