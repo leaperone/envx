@@ -134,6 +134,10 @@ export function pushCommand(program: Command): void {
         if (!response.ok) {
           if (response.status === 401) {
             console.error(chalk.red('❌ Authentication failed. Run `envx login` to re-authenticate.'));
+          } else if (response.status === 403) {
+            console.error(chalk.red(`❌ Permission denied: You don't have access to namespace "${parsedUrl.namespace}".`));
+            console.error(chalk.yellow('💡 Tip: Check that you have push permission, or ask the namespace owner to grant access.'));
+            console.error(chalk.yellow('💡 Tip: Use `envx org list` to see your organizations.'));
           } else {
             console.error(chalk.red(`❌ Error: Remote server returned ${response.status}`));
             console.error(chalk.red(`Message: ${responseData.msg || 'Unknown error'}`));
