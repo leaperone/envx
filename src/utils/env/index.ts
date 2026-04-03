@@ -1,4 +1,5 @@
 import { promises as fs } from 'fs';
+import { dirname } from 'path';
 import { EnvxConfig } from '@/types/config';
 import { EnvMap, ShellKind } from '@/types/common';
 import { spawn } from 'child_process';
@@ -65,6 +66,8 @@ export async function readEnvFile(filePath: string): Promise<EnvMap> {
  */
 export async function writeEnvFile(filePath: string, env: EnvMap): Promise<void> {
   const output = serializeEnv(env);
+  const dir = dirname(filePath);
+  await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(filePath, output, 'utf8');
 }
 

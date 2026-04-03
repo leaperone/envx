@@ -151,13 +151,20 @@ export class ConfigValidator {
               }
             }
 
-            // 检查路径冲突（仅在全局与局部都为字符串时检查完全相等）
-            if (
-              typeof config.files === 'string' &&
-              typeof envConfig.files === 'string' &&
-              envConfig.files === config.files
-            ) {
-              warnings.push(`环境变量 "${key}" 的 clone 路径与全局 clone 路径相同，可能造成冲突`);
+            // 检查 per-variable files 是否为全局 files 的子集
+            const globalFilesList = config.files
+              ? (Array.isArray(config.files) ? config.files : [config.files])
+              : [];
+            const varFilesList = Array.isArray(envConfig.files)
+              ? envConfig.files
+              : [envConfig.files];
+
+            for (const vf of varFilesList) {
+              if (globalFilesList.length > 0 && !globalFilesList.includes(vf)) {
+                warnings.push(
+                  `环境变量 "${key}" 的目标文件 "${vf}" 未在全局 files 中声明`
+                );
+              }
             }
           }
         }
