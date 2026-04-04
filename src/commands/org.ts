@@ -34,8 +34,8 @@ export function orgCommand(program: Command): void {
   org
     .command('create <name>')
     .description('Create a new organization')
-    .option('-d, --display-name <name>', 'Display name for the organization')
-    .action(async (name: string, opts: { displayName?: string }) => {
+    .option('-n, --name <name>', 'Display name for the organization')
+    .action(async (slug: string, opts: { name?: string }) => {
       const { token, baseUrl } = requireAuth();
       const spinner = ora('Creating organization...').start();
 
@@ -44,14 +44,14 @@ export function orgCommand(program: Command): void {
           method: 'POST',
           headers: authHeaders(token),
           body: JSON.stringify({
-            slug: name,
-            displayName: opts.displayName || name,
+            slug,
+            name: opts.name || slug,
           }),
         });
 
         const data = (await res.json()) as {
           success: boolean;
-          data?: { id: string; slug: string; displayName: string };
+          data?: { id: string; slug: string; name: string };
           error?: string;
         };
 
@@ -92,7 +92,7 @@ export function orgCommand(program: Command): void {
 
         const data = (await res.json()) as {
           success: boolean;
-          data?: Array<{ id: string; slug: string; displayName: string; role: string }>;
+          data?: Array<{ id: string; slug: string; name: string; role: string }>;
           error?: string;
         };
 
@@ -114,7 +114,7 @@ export function orgCommand(program: Command): void {
         for (const o of orgs) {
           const marker = o.slug === currentOrg ? chalk.green(' ← current') : '';
           console.log(`  ${chalk.bold(o.slug)}${marker}`);
-          console.log(chalk.gray(`    Name: ${o.displayName}  Role: ${o.role}`));
+          console.log(chalk.gray(`    Name: ${o.name}  Role: ${o.role}`));
         }
       } catch (err) {
         spinner.stop();
@@ -141,7 +141,7 @@ export function orgCommand(program: Command): void {
 
         const data = (await res.json()) as {
           success: boolean;
-          data?: { id: string; slug: string; displayName: string };
+          data?: { id: string; slug: string; name: string };
           error?: string;
         };
 
