@@ -5,6 +5,7 @@ import path from 'node:path';
 interface Credentials {
   token?: string;
   baseUrl?: string;
+  currentOrg?: string;
 }
 
 const CREDENTIALS_DIR = path.join(os.homedir(), '.envx');
@@ -51,6 +52,20 @@ export function getCredential(): string | undefined {
 
 export function getAuthBaseUrl(): string {
   return process.env.ENVX_BASEURL || loadCredentials().baseUrl || 'https://leaper.one';
+}
+
+export function getCurrentOrg(): string | undefined {
+  return loadCredentials().currentOrg;
+}
+
+export function setCurrentOrg(org: string | undefined): void {
+  const credentials = loadCredentials();
+  if (org) {
+    credentials.currentOrg = org;
+  } else {
+    delete credentials.currentOrg;
+  }
+  saveCredentials(credentials);
 }
 
 export { CREDENTIALS_DIR, CREDENTIALS_FILE };
