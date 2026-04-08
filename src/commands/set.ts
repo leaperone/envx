@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { ConfigManager } from '@/utils/config';
-import { saveEnvs, writeEnvs } from '@/utils/com';
+import { getEnvs, saveEnvs, writeEnvs } from '@/utils/com';
 import { EnvConfig } from '@/types/config';
 import { 
   validateEnvKey, 
@@ -17,6 +17,7 @@ export function setCommand(program: Command): void {
     .option('-c, --config <path>', 'Path to config file (default: ./envx.config.yaml)', './envx.config.yaml')
     .option('-d, --description <text>', 'Description for the environment variable')
     .option('-t, --target <path>', 'Target path for the environment variable')
+    .option('--files <paths>', 'Target file paths for monorepo (comma-separated, e.g. apps/web/.env,apps/api/.env)')
     .option('--force', 'Force update without confirmation if variable exists')
     .action(async (key: string, value: string, options) => {
       try {
@@ -81,6 +82,11 @@ export function setCommand(program: Command): void {
           envConfig.target = options.target;
         }
 
+        if (options.files) {
+          const filesList = options.files.split(',').map((f: string) => f.trim());
+          envConfig.files = filesList.length === 1 ? filesList[0] : filesList;
+        }
+
         // 更新配置
         configManager.setEnvVar(key, envConfig);
         configManager.save();
@@ -89,11 +95,13 @@ export function setCommand(program: Command): void {
         console.log(chalk.blue('🗄️  Updating database...'));
         await saveEnvs(configPath, { [key]: value }, 'default');
 
-        // 写入环境文件（writeEnvs）
+        // 写入环境文件（writeEnvs）— 读取完整环境后合并写入，避免覆盖其他变量
         if (config.files) {
           console.log(chalk.blue('🔄 Updating environment file based on clone configuration...'));
           try {
-            await writeEnvs(configPath, { [key]: value });
+            const currentEnvs = await getEnvs(configPath);
+            currentEnvs[key] = value;
+            await writeEnvs(configPath, currentEnvs);
             console.log(chalk.green('✅ Environment file updated'));
           } catch (error) {
             console.warn(
@@ -120,6 +128,10 @@ export function setCommand(program: Command): void {
         
         if (options.target) {
           console.log(chalk.gray(`   Target: ${options.target}`));
+        }
+
+        if (options.files) {
+          console.log(chalk.gray(`   Files: ${options.files}`));
         }
         
         // 显示配置相关信息
