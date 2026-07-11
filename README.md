@@ -157,8 +157,8 @@ Push and pull use the canonical
 EnvX falls back to the legacy `/pull` and `/push` aliases. Pull stores the returned
 ETag; the next push sends `If-Match`, while a first push sends `If-None-Match: *`.
 A `412` therefore requires an explicit pull/merge/retry instead of overwriting a
-newer remote revision. PUT requests carry an `Idempotency-Key` and only idempotent
-GET/PUT requests are retried.
+newer remote revision. PUT requests carry an `Idempotency-Key`. GET/PUT requests,
+plus POST/PATCH/DELETE requests protected by an `Idempotency-Key`, use bounded retries.
 
 Request behavior can be bounded with `ENVX_HTTP_TIMEOUT_MS` (default `15000`),
 `ENVX_HTTP_MAX_RETRIES` (default `2`) and `ENVX_HTTP_RETRY_DELAY_MS` (default `250`).

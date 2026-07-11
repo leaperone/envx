@@ -153,8 +153,8 @@ Push/Pull 使用 canonical
 `GET|PUT /api/v1/envx/:namespace/:project`。canonical route 不可用时才回退到旧
 `/pull`、`/push` alias。Pull 会保存服务端 ETag；后续 Push 发送 `If-Match`，首次
 Push 发送 `If-None-Match: *`。收到 `412` 时必须先 pull、合并再重试，不能静默
-覆盖较新的远端 revision。PUT 请求携带 `Idempotency-Key`，且只有幂等的 GET/PUT
-请求会自动重试。
+覆盖较新的远端 revision。PUT 请求携带 `Idempotency-Key`。GET/PUT 请求，以及携带
+`Idempotency-Key` 的 POST/PATCH/DELETE 请求，会执行有上限的自动重试。
 
 可通过 `ENVX_HTTP_TIMEOUT_MS`（默认 `15000`）、`ENVX_HTTP_MAX_RETRIES`（默认
 `2`）和 `ENVX_HTTP_RETRY_DELAY_MS`（默认 `250`）限制请求行为。普通和 verbose
