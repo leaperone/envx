@@ -516,6 +516,7 @@ test('browser login uses PKCE canonical exchange and requests only EnvX business
     ]
   );
   const exchange = apiRequests[0];
+  assert.match(exchange.headers['idempotency-key'], /^[0-9a-f-]{36}$/);
   assert.equal(exchange.body.code, 'browser-code');
   assert.match(exchange.body.codeVerifier, /^[A-Za-z0-9_-]{43}$/);
   assert.match(exchange.body.redirectUri, /^http:\/\/127\.0\.0\.1:\d+\/callback$/);

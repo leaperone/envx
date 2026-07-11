@@ -54,7 +54,11 @@ async function exchangeAuthorizationCode(input: {
     { canonicalUrl: new URL('/api/v1/auth/cli/exchange', input.apiBaseUrl).toString() },
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'User-Agent': USER_AGENT },
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': createIdempotencyKey(),
+        'User-Agent': USER_AGENT,
+      },
       body: JSON.stringify({
         code: input.code,
         codeVerifier: input.verifier,
