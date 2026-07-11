@@ -1,82 +1,60 @@
 # Push 命令使用示例
 
-## URL 解析工具
+## 配置
 
-Push 命令现在使用独立的 URL 解析工具 (`src/utils/url.ts`)，支持以下功能：
+`.envx/dev.config.yaml`：
 
-- 解析完整格式 URL：`<baseurl>/<namespace>/<project>:<tag>`
-- 解析基础格式 URL：`<baseurl>` (配合命令行参数)
-- 自动构建 API 路径：`/api/v1/envx/<namespace>/<project>/push`
-- 从配置文件获取远程 URL 信息
-- **默认 base URL**: `https://leaper.one` (当没有配置时自动使用)
+```yaml
+apiBaseUrl: https://api.leaper.one
+dashboardUrl: https://dashboard.leaper.one
+namespace: production
+project: myapp
+```
+
+先执行 `envx login` 获取 control token，也可以通过 `ENVX_API_KEY` 或 dev config
+中的 `apiKey` 提供兼容 credential。
 
 ## 基本用法
 
-### 1. 使用完整 URL 格式
 ```bash
-# 推送标签到指定命名空间和项目
-envx push deployment-v1.2.3 --remote https://api.example.com/production/myapp:deployment-v1.2.3
+# 使用 dev config 中的 API、namespace、project
+envx push deployment-v1.2.3
 
-# 实际请求会发送到: https://api.example.com/api/v1/envx/production/myapp/push
+# 显式指定 namespace/project/tag
+envx push production/myapp:deployment-v1.2.3
+
+# 自定义 API origin
+envx push https://api.example.com/production/myapp:deployment-v1.2.3
+
+# 仅输出 key 与 UTF-8 长度，不输出 value
+envx push deployment-v1.2.3 --verbose
 ```
 
-### 2. 使用基础 URL + 参数
-```bash
-# 使用基础 URL 和命令行参数
-envx push deployment-v1.2.3 --remote https://api.example.com --namespace production --project myapp
+canonical 请求为：
 
-# 实际请求会发送到: https://api.example.com/api/v1/envx/production/myapp/push
+```text
+PUT https://api.leaper.one/api/v1/envx/production/myapp
 ```
 
-### 3. 使用配置文件
-```bash
-# 在 .envx/dev.config.yaml 中配置
-# remote: https://api.example.com
-# 然后使用命令行参数指定命名空间和项目
-envx push deployment-v1.2.3 --namespace production --project myapp
-```
+请求体包含 `tag`、兼容 timestamp 和 `items`。请求携带版本化
+`User-Agent`、`Idempotency-Key`，并按本地 remote state 发送：
 
-### 4. 使用默认 base URL
-```bash
-# 不指定任何 URL，自动使用默认的 https://leaper.one
-envx push deployment-v1.2.3 --namespace production --project myapp
+- 首次创建：`If-None-Match: *`
+- 已 pull/push 过：`If-Match: <etag>`
 
-# 实际请求会发送到: https://leaper.one/api/v1/envx/production/myapp/push
-```
+如果 canonical route 返回 `404`、`405` 或 `501`，客户端会用相同
+idempotency key 回退到 legacy `POST .../push`，但不会携带 canonical revision
+precondition。其他错误不会触发 alias fallback。
 
-## 请求体格式
+## 冲突与安全
 
-命令会发送以下格式的 JSON 数据：
+- `412`：远端 revision 已变化，先执行 pull、合并并重新 push。
+- `409`：namespace ownership 冲突，确认当前用户或 organization。
+- `401/403`：重新登录，或确认 token scope 与 namespace 权限。
+- 正常及 verbose 输出不会打印 value、完整 payload 或服务端返回的 secret。
 
-```json
-{
-  "tag": "deployment-v1.2.3",
-  "version": 100,
-  "timestamp": "2024-01-01T00:00:00Z",
-  "items": [
-    {
-      "key": "DATABASE_URL",
-      "value": "postgresql://user:pass@localhost:5432/mydb"
-    },
-    {
-      "key": "API_KEY",
-      "value": "sk-1234567890abcdef"
-    }
-  ]
-}
-```
+命令选项：
 
-## 命令行选项
-
-- `-c, --config <path>`: 配置文件路径 (默认: ./envx.config.yaml)
-- `-d, --dev-config <path>`: 开发配置文件路径 (默认: .envx/dev.config.yaml)
-- `-r, --remote <url>`: 远程服务器 URL
-- `-n, --namespace <name>`: 命名空间名称
-- `-p, --project <name>`: 项目名称
-- `-v, --verbose`: 详细输出
-
-## 错误处理
-
-- 如果标签不存在，会显示可用标签列表
-- 如果远程 URL 无法访问，会显示详细错误信息
-- 如果服务器返回错误，会显示错误消息和状态码
+- `-c, --config <path>`：业务配置，默认 `./envx.config.yaml`
+- `-d, --dev-config <path>`：开发配置，默认 `.envx/dev.config.yaml`
+- `-v, --verbose`：安全的详细元数据输出

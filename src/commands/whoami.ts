@@ -1,7 +1,8 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { getCredential, getAuthBaseUrl } from '@/utils/credentials';
+import { getCredential, getApiBaseUrl } from '@/utils/credentials';
+import { controlPlaneHeaders, fetchWithLegacyFallback } from '@/utils/http';
 
 export function whoamiCommand(program: Command): void {
   program
@@ -15,16 +16,17 @@ export function whoamiCommand(program: Command): void {
         return;
       }
 
-      const baseUrl = getAuthBaseUrl();
+      const apiBaseUrl = getApiBaseUrl();
       const spinner = ora('Checking...').start();
 
       try {
-        const res = await fetch(new URL('/api/v1/cli/me', baseUrl).toString(), {
-          headers: {
-            Authorization: `Bearer ${credential}`,
-            'User-Agent': '@leaperone/envx',
+        const { response: res } = await fetchWithLegacyFallback(
+          {
+            canonicalUrl: new URL('/api/v1/me', apiBaseUrl).toString(),
+            legacyUrl: new URL('/api/v1/cli/me', apiBaseUrl).toString(),
           },
-        });
+          { headers: controlPlaneHeaders(credential) }
+        );
 
         if (!res.ok) {
           spinner.stop();
@@ -58,13 +60,11 @@ export function whoamiCommand(program: Command): void {
           console.log(chalk.gray(`  Role:   ${user.role}`));
         }
         console.log(chalk.gray(`  Source: ${source}`));
-        console.log(chalk.gray(`  API:    ${baseUrl}`));
+        console.log(chalk.gray(`  API:    ${apiBaseUrl}`));
       } catch {
         spinner.stop();
         console.log(
-          chalk.yellow(
-            'Could not reach the server. Check your network or try `envx login` again.'
-          )
+          chalk.yellow('Could not reach the server. Check your network or try `envx login` again.')
         );
       }
     });

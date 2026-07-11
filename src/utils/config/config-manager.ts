@@ -4,14 +4,67 @@ import { stringify } from 'yaml';
 import { ConfigParser } from './config-parser';
 import { EnvxConfig, EnvConfig, EnvTarget, DevConfig, DevConfigParseResult } from '.';
 
+function defaultDevConfig(): DevConfig {
+  return {
+    baseUrl: process.env.ENVX_BASEURL,
+    apiBaseUrl: process.env.ENVX_API_BASE_URL,
+    dashboardUrl: process.env.ENVX_DASHBOARD_URL,
+    namespace: process.env.ENVX_NAMESPACE,
+    project: process.env.ENVX_PROJECT,
+    apiKey: process.env.ENVX_API_KEY,
+  };
+}
+
+export function loadDevConfig(
+  devConfigPath: string = '.envx/dev.config.yaml'
+): DevConfigParseResult {
+  if (!existsSync(devConfigPath)) {
+    return {
+      config: defaultDevConfig(),
+      validation: {
+        isValid: true,
+        errors: [],
+        warnings: ['dev config not found, using defaults'],
+      },
+    };
+  }
+
+  try {
+    const content = readFileSync(devConfigPath, 'utf-8');
+    const result = ConfigParser.parseDevFromString(content);
+    if (result.validation.isValid) return result;
+    return {
+      config: defaultDevConfig(),
+      validation: {
+        isValid: true,
+        errors: [],
+        warnings: [
+          ...result.validation.warnings,
+          'invalid dev config, using defaults',
+          ...result.validation.errors,
+        ],
+      },
+    };
+  } catch (error) {
+    return {
+      config: defaultDevConfig(),
+      validation: {
+        isValid: true,
+        errors: [],
+        warnings: [
+          `failed to read dev config: ${error instanceof Error ? error.message : 'unknown error'}`,
+          'using defaults',
+        ],
+      },
+    };
+  }
+}
+
 export class ConfigManager {
   private config: EnvxConfig;
   private configPath: string;
 
-  constructor(
-    configPath: string = './envx.config.yaml',
-    options: { allowMissing?: boolean } = {}
-  ) {
+  constructor(configPath: string = './envx.config.yaml', options: { allowMissing?: boolean } = {}) {
     this.configPath = configPath;
     this.config = this.loadConfig(options.allowMissing === true);
   }
@@ -274,12 +327,7 @@ export class ConfigManager {
    * 从环境变量中尝试填充缺省值
    */
   getDefaultDevConfig(): DevConfig {
-    return {
-      baseUrl: process.env.ENVX_BASEURL,
-      namespace: process.env.ENVX_NAMESPACE,
-      project: process.env.ENVX_PROJECT,
-      apiKey: process.env.ENVX_API_KEY,
-    };
+    return defaultDevConfig();
   }
 
   /**
@@ -287,40 +335,6 @@ export class ConfigManager {
    * 若文件不存在或内容无效，则回退到默认配置并提供 warning。
    */
   getDevConfig(devConfigPath: string = '.envx/dev.config.yaml'): DevConfigParseResult {
-    if (!existsSync(devConfigPath)) {
-      return {
-        config: this.getDefaultDevConfig(),
-        validation: {
-          isValid: true,
-          errors: [],
-          warnings: ['dev config not found, using defaults'],
-        },
-      };
-    }
-
-    try {
-      const content = readFileSync(devConfigPath, 'utf-8');
-      const result = ConfigParser.parseDevFromString(content);
-      if (result.validation.isValid) {
-        return result;
-      }
-      return {
-        config: this.getDefaultDevConfig(),
-        validation: {
-          isValid: true,
-          errors: [],
-          warnings: [...result.validation.warnings, 'invalid dev config, using defaults', ...result.validation.errors],
-        },
-      };
-    } catch (error) {
-      return {
-        config: this.getDefaultDevConfig(),
-        validation: {
-          isValid: true,
-          errors: [],
-          warnings: [`failed to read dev config: ${error instanceof Error ? error.message : 'unknown error'}`, 'using defaults'],
-        },
-      };
-    }
+    return loadDevConfig(devConfigPath);
   }
 }

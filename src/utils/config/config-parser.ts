@@ -1,6 +1,14 @@
 import { readFileSync } from 'fs';
 import { parse } from 'yaml';
-import { EnvxConfig, ConfigParseResult, ConfigValidationResult, EnvConfig, DevConfig, DevConfigParseResult } from '.';
+import {
+  EnvxConfig,
+  ConfigParseResult,
+  ConfigValidationResult,
+  EnvConfig,
+  EnvTarget,
+  DevConfig,
+  DevConfigParseResult,
+} from '.';
 
 export class ConfigParser {
   /**
@@ -76,6 +84,20 @@ export class ConfigParser {
     if (!config || typeof config !== 'object') {
       errors.push('dev 配置缺失或格式错误');
       return { isValid: false, errors, warnings };
+    }
+
+    const stringFields: Array<keyof DevConfig> = [
+      'baseUrl',
+      'apiBaseUrl',
+      'dashboardUrl',
+      'namespace',
+      'project',
+      'apiKey',
+    ];
+    for (const field of stringFields) {
+      if (config[field] !== undefined && typeof config[field] !== 'string') {
+        errors.push(`dev 配置字段 ${field} 必须是字符串`);
+      }
     }
 
     return { isValid: errors.length === 0, errors, warnings };
@@ -180,7 +202,10 @@ export class ConfigParser {
    * 将 env 配置项的各种格式（string / EnvConfig / undefined / null）
    * 统一转换为 EnvConfig 对象
    */
-  static normalizeEnvValue(value: EnvTarget | EnvConfig | undefined | null, key: string): EnvConfig {
+  static normalizeEnvValue(
+    value: EnvTarget | EnvConfig | undefined | null,
+    key: string
+  ): EnvConfig {
     if (value === null || value === undefined) {
       return this.getDefaultEnvConfig(key);
     }
