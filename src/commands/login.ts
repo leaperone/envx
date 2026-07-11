@@ -14,6 +14,7 @@ import {
 } from '@/utils/credentials';
 import {
   controlPlaneHeaders,
+  createIdempotencyKey,
   fetchWithLegacyFallback,
   responseErrorMessage,
   USER_AGENT,
@@ -195,7 +196,10 @@ async function exchangeDashboardSession(apiBaseUrl: string, sessionToken: string
     { canonicalUrl: new URL('/api/v1/auth/session/exchange', apiBaseUrl).toString() },
     {
       method: 'POST',
-      headers: controlPlaneHeaders(sessionToken, { 'Content-Type': 'application/json' }),
+      headers: controlPlaneHeaders(sessionToken, {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': createIdempotencyKey(),
+      }),
       body: JSON.stringify({
         scopes: ENVX_CONTROL_SCOPES,
         tokenName: 'EnvX CLI',

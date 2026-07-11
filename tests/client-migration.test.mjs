@@ -441,6 +441,7 @@ test('device login keeps Dashboard authorization and API verification on distinc
   });
   assert.equal(apiRequests[0].headers['user-agent'], '@leaperone/envx/0.2.3');
   assert.equal(apiRequests[0].headers.authorization, 'Bearer control-token');
+  assert.match(apiRequests[0].headers['idempotency-key'], /^[0-9a-f-]{36}$/);
   assert.deepEqual(apiRequests[0].body, {
     scopes: ['profile:read', 'orgs:read', 'orgs:write', 'envx:read', 'envx:write'],
     tokenName: 'EnvX CLI',
