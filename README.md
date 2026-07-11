@@ -101,6 +101,40 @@ envx tag v1.1.0 -v                            # verbose output
 
 ### Remote Operations
 
+Authenticate through Dashboard; EnvX stores the resulting scoped control token in
+`~/.envx/credentials.json` with mode `0600`:
+
+```bash
+envx login
+envx login --device
+envx whoami
+```
+
+Browser login uses PKCE S256 and exchanges the one-time code on the API origin.
+Device Flow remains on Dashboard, then exchanges the temporary Dashboard bearer for
+a control token scoped to `profile:read`, `orgs:read/write` and `envx:read/write`.
+The temporary bearer is kept only when the session-exchange route is not yet deployed.
+
+The official defaults are split by responsibility:
+
+- API calls: `https://api.leaper.one`
+- browser and Device Flow authentication: `https://dashboard.leaper.one`
+
+Project-specific settings belong in `.envx/dev.config.yaml`:
+
+```yaml
+apiBaseUrl: https://api.leaper.one
+dashboardUrl: https://dashboard.leaper.one
+namespace: your-team
+project: your-project
+```
+
+`ENVX_API_BASE_URL` and `ENVX_DASHBOARD_URL` provide environment overrides. The old
+`baseUrl` / `ENVX_BASEURL` setting remains compatible: the official
+`https://leaper.one` value maps to the split official domains, while a custom legacy
+URL remains a single origin for both API and login. EnvX does not guess custom
+subdomains.
+
 ```bash
 # Push environment variables to remote server
 envx push v1.0.0                              # push tag to default remote
@@ -117,6 +151,20 @@ envx pull v1.0.0 --not-load                   # don't load into current env
 envx pull v1.0.0 --export                     # export to shell commands
 envx pull v1.0.0 --force                      # force pull even if not in config
 ```
+
+Push and pull use the canonical
+`GET|PUT /api/v1/envx/:namespace/:project` contract. If that route is unavailable,
+EnvX falls back to the legacy `/pull` and `/push` aliases. Pull stores the returned
+ETag; the next push sends `If-Match`, while a first push sends `If-None-Match: *`.
+A `412` therefore requires an explicit pull/merge/retry instead of overwriting a
+newer remote revision. PUT requests carry an `Idempotency-Key` and only idempotent
+GET/PUT requests are retried.
+
+Request behavior can be bounded with `ENVX_HTTP_TIMEOUT_MS` (default `15000`),
+`ENVX_HTTP_MAX_RETRIES` (default `2`) and `ENVX_HTTP_RETRY_DELAY_MS` (default `250`).
+Normal and verbose push output never prints secret values or complete payloads.
+`pull --export` intentionally emits values because its explicit purpose is to
+produce shell export commands; handle that output as secret material.
 
 ### Legacy Commands (URL-based)
 
@@ -136,6 +184,7 @@ envx unset https://example.com/unset.txt --print
 ### Command Options Reference
 
 #### Configuration Commands
+
 - `init` - Initialize envx configuration from existing .env file
   - `-f, --file <path>` - Path to .env file (default: `./.env`)
   - `-o, --output <path>` - Output path for config file (default: `./envx.config.yaml`)
@@ -147,6 +196,7 @@ envx unset https://example.com/unset.txt --print
   - `-j, --json` - Output results in JSON format
 
 #### Environment Variable Commands
+
 - `set <key> <value>` - Set or update an environment variable
   - `-c, --config <path>` - Path to config file (default: `./envx.config.yaml`)
   - `-d, --description <text>` - Description for the environment variable
@@ -168,6 +218,7 @@ envx unset https://example.com/unset.txt --print
   - `--force` - Force load from database even if variable not in config
 
 #### History Commands
+
 - `history` - View environment variable history records
   - `-c, --config <path>` - Path to config file (default: `./envx.config.yaml`)
   - `-k, --key <key>` - Filter history by specific environment variable key
@@ -184,6 +235,14 @@ envx unset https://example.com/unset.txt --print
   - `-v, --verbose` - Verbose output
 
 #### Remote Commands
+
+- `login` - Authenticate and store a scoped control token
+  - `--device` - Use Dashboard Device Flow
+  - `--api-base-url <url>` - Override the API origin
+  - `--dashboard-url <url>` - Override the Dashboard authentication origin
+  - `--base-url <url>` - Deprecated single-origin compatibility override
+  - `-d, --dev-config <path>` - Connection config (default: `.envx/dev.config.yaml`)
+
 - `push <ref>` - Push environment variables to remote server
   - `-c, --config <path>` - Path to config file (default: `./envx.config.yaml`)
   - `-d, --dev-config <path>` - Path to dev config file (default: `.envx/dev.config.yaml`)
@@ -200,6 +259,7 @@ envx unset https://example.com/unset.txt --print
   - `-v, --verbose` - Verbose output
 
 #### Legacy Commands
+
 - `export <url>` - Fetch env and apply/print shell commands
   - `-s, --shell <shell>` - Target shell: `sh` | `cmd` | `powershell`
   - `--apply` - Start a new subshell with variables applied (default if no `--print` and no `--exec`)

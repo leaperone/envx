@@ -82,7 +82,9 @@ async function runPush({ verbose = false, status = 200, responseBody }) {
       cwd,
       env: {
         ...process.env,
+        HOME: cwd,
         ENVX_API_KEY: 'test-auth-token',
+        ENVX_HTTP_MAX_RETRIES: '0',
         FORCE_COLOR: '0',
         NO_COLOR: '1',
       },
@@ -116,8 +118,7 @@ function assertNoSecrets(output) {
 test('normal push output does not expose values', async () => {
   const result = await runPush({
     responseBody: {
-      code: 0,
-      msg: 'ok',
+      success: true,
       data: [
         { key: 'API_SECRET', value: SECRET },
         { key: 'DATABASE_URL', value: SECOND_SECRET },
@@ -136,8 +137,7 @@ test('verbose push prints only key and length metadata', async () => {
   const result = await runPush({
     verbose: true,
     responseBody: {
-      code: 0,
-      msg: 'ok',
+      success: true,
       data: [
         { key: 'API_SECRET', value: SECRET },
         { key: 'DATABASE_URL', value: SECOND_SECRET },

@@ -99,6 +99,39 @@ envx tag v1.1.0 -v                            # 详细输出
 
 ### 远程操作
 
+通过 Dashboard 完成登录；EnvX 会把换取到的 scoped control token 以 `0600`
+权限保存到 `~/.envx/credentials.json`：
+
+```bash
+envx login
+envx login --device
+envx whoami
+```
+
+浏览器登录使用 PKCE S256，并在 API origin 交换一次性 code。Device Flow 仍由
+Dashboard 提供，随后把临时 Dashboard bearer 换成仅包含 `profile:read`、
+`orgs:read/write` 和 `envx:read/write` 的 control token。只有 session exchange route
+尚未部署时才会临时保留 Dashboard bearer。
+
+官方默认地址按职责拆分：
+
+- API 调用：`https://api.leaper.one`
+- 浏览器与 Device Flow 登录：`https://dashboard.leaper.one`
+
+项目级配置写入 `.envx/dev.config.yaml`：
+
+```yaml
+apiBaseUrl: https://api.leaper.one
+dashboardUrl: https://dashboard.leaper.one
+namespace: your-team
+project: your-project
+```
+
+环境变量覆盖项为 `ENVX_API_BASE_URL` 和 `ENVX_DASHBOARD_URL`。旧的
+`baseUrl` / `ENVX_BASEURL` 继续兼容：官方 `https://leaper.one` 会自动映射到
+拆分后的官方域名；自定义旧地址仍作为 API 与登录共用的单一 origin，EnvX
+不会猜测自定义子域名。
+
 ```bash
 # 推送环境变量到远程服务器
 envx push v1.0.0                              # 推送标签到默认远程
@@ -115,6 +148,18 @@ envx pull v1.0.0 --not-load                   # 不加载到当前环境
 envx pull v1.0.0 --export                     # 导出为 shell 命令
 envx pull v1.0.0 --force                      # 强制拉取即使不在配置中
 ```
+
+Push/Pull 使用 canonical
+`GET|PUT /api/v1/envx/:namespace/:project`。canonical route 不可用时才回退到旧
+`/pull`、`/push` alias。Pull 会保存服务端 ETag；后续 Push 发送 `If-Match`，首次
+Push 发送 `If-None-Match: *`。收到 `412` 时必须先 pull、合并再重试，不能静默
+覆盖较新的远端 revision。PUT 请求携带 `Idempotency-Key`，且只有幂等的 GET/PUT
+请求会自动重试。
+
+可通过 `ENVX_HTTP_TIMEOUT_MS`（默认 `15000`）、`ENVX_HTTP_MAX_RETRIES`（默认
+`2`）和 `ENVX_HTTP_RETRY_DELAY_MS`（默认 `250`）限制请求行为。普通和 verbose
+Push 输出都不会打印 secret value 或完整 payload。`pull --export` 因明确用于生成
+shell export 命令而会输出值，应把该输出视为敏感信息。
 
 ### 传统命令（基于 URL）
 
@@ -134,6 +179,7 @@ envx unset https://example.com/unset.txt --print
 ### 命令选项参考
 
 #### 配置命令
+
 - `init` - 从现有 .env 文件初始化 envx 配置
   - `-f, --file <path>` - .env 文件路径（默认：`./.env`）
   - `-o, --output <path>` - 配置文件输出路径（默认：`./envx.config.yaml`）
@@ -145,6 +191,7 @@ envx unset https://example.com/unset.txt --print
   - `-j, --json` - JSON 格式输出结果
 
 #### 环境变量命令
+
 - `set <key> <value>` - 设置或更新环境变量
   - `-c, --config <path>` - 配置文件路径（默认：`./envx.config.yaml`）
   - `-d, --description <text>` - 环境变量描述
@@ -166,6 +213,7 @@ envx unset https://example.com/unset.txt --print
   - `--force` - 即使变量不在配置中也强制从数据库加载
 
 #### 历史命令
+
 - `history` - 查看环境变量历史记录
   - `-c, --config <path>` - 配置文件路径（默认：`./envx.config.yaml`）
   - `-k, --key <key>` - 按特定环境变量键过滤历史
@@ -182,6 +230,14 @@ envx unset https://example.com/unset.txt --print
   - `-v, --verbose` - 详细输出
 
 #### 远程命令
+
+- `login` - 登录并保存 scoped control token
+  - `--device` - 使用 Dashboard Device Flow
+  - `--api-base-url <url>` - 覆盖 API origin
+  - `--dashboard-url <url>` - 覆盖 Dashboard 登录 origin
+  - `--base-url <url>` - 已废弃的单 origin 兼容覆盖项
+  - `-d, --dev-config <path>` - 连接配置（默认：`.envx/dev.config.yaml`）
+
 - `push <ref>` - 推送环境变量到远程服务器
   - `-c, --config <path>` - 配置文件路径（默认：`./envx.config.yaml`）
   - `-d, --dev-config <path>` - 开发配置文件路径（默认：`.envx/dev.config.yaml`）
@@ -198,6 +254,7 @@ envx unset https://example.com/unset.txt --print
   - `-v, --verbose` - 详细输出
 
 #### 传统命令
+
 - `export <url>` - 拉取 env 并应用/打印对应 shell 命令
   - `-s, --shell <shell>` - 目标 shell：`sh` | `cmd` | `powershell`
   - `--apply` - 启动新的子 Shell 并应用变量（若未指定 `--print` 且未指定 `--exec`，默认为此）
@@ -344,5 +401,3 @@ ISC
 ## 🤝 贡献
 
 欢迎提交 Issue 与 Pull Request！
-
-

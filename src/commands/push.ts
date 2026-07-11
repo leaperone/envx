@@ -4,8 +4,22 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { ConfigManager } from '@/utils/config';
 import { getEnvs } from '@/utils/com';
-import { parseRef, buildPushUrl } from '@/utils/url';
-import { getCredential } from '@/utils/credentials';
+import { parseRef, buildLegacyPushUrl, buildPushUrl } from '@/utils/url';
+import {
+  getCredential,
+  getCurrentOrg,
+  getCurrentOrgId,
+  resolveApiBaseUrl,
+  setCurrentOrg,
+} from '@/utils/credentials';
+import { createDatabaseManagerFromConfigPath } from '@/utils/db';
+import {
+  controlPlaneHeaders,
+  createIdempotencyKey,
+  etagFromResponse,
+  fetchWithLegacyFallback,
+  responseErrorMessage,
+} from '@/utils/http';
 
 interface PushOptions {
   verbose?: boolean;
@@ -78,6 +92,48 @@ function printSafeDataSummary(data: unknown, items: PushItem[], useError = false
   }
 }
 
+function responseSucceeded(body: unknown, legacy: boolean): boolean {
+  if (!body || typeof body !== 'object') return false;
+  const record = body as Record<string, unknown>;
+  return legacy ? record.code === 0 : record.success === true;
+}
+
+function responseData(body: unknown): unknown {
+  return body && typeof body === 'object' ? (body as Record<string, unknown>).data : null;
+}
+
+async function resolveCurrentOrganizationId(
+  apiBaseUrl: string,
+  token: string
+): Promise<string | undefined> {
+  const slug = getCurrentOrg();
+  if (!slug) return undefined;
+  const storedId = getCurrentOrgId();
+  if (storedId) return storedId;
+
+  const encodedSlug = encodeURIComponent(slug);
+  const { response } = await fetchWithLegacyFallback(
+    {
+      canonicalUrl: new URL(`/api/v1/organizations/${encodedSlug}`, apiBaseUrl).toString(),
+      legacyUrl: new URL(`/api/v1/cli/orgs/${encodedSlug}`, apiBaseUrl).toString(),
+    },
+    { method: 'GET', headers: controlPlaneHeaders(token, { Accept: 'application/json' }) }
+  );
+  const body: unknown = await response.json().catch(() => null);
+  const data = responseData(body);
+  const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : null;
+  if (!response.ok || typeof record?.id !== 'string' || typeof record.slug !== 'string') {
+    throw new Error(
+      responseErrorMessage(
+        body,
+        `Current organization "${slug}" could not be resolved (HTTP ${response.status})`
+      )
+    );
+  }
+  setCurrentOrg(record.slug, record.id);
+  return record.id;
+}
+
 export function pushCommand(program: Command): void {
   program
     .command('push <ref>')
@@ -118,13 +174,17 @@ export function pushCommand(program: Command): void {
 
         // 解析远程服务器 URL 和参数
         const parsedUrl = parseRef(ref, {
-          baseUrl: devConfigResult.config.baseUrl,
+          apiBaseUrl: resolveApiBaseUrl(
+            devConfigResult.config.apiBaseUrl,
+            devConfigResult.config.baseUrl
+          ),
           namespace: devConfigResult.config.namespace,
           project: devConfigResult.config.project,
         });
 
         // 构建完整的 API URL
         const remoteUrl = buildPushUrl(parsedUrl);
+        const legacyRemoteUrl = buildLegacyPushUrl(parsedUrl);
 
         console.log(chalk.gray(`🌐 Remote URL: ${remoteUrl}`));
 
@@ -150,10 +210,19 @@ export function pushCommand(program: Command): void {
         const timestamp = new Date().toISOString();
 
         // 构建无版本号的 payload（服务端不再需要 version）
+        const apiKey = devConfigResult.config.apiKey || process.env.ENVX_API_KEY || getCredential();
+        if (!apiKey) {
+          console.error(
+            chalk.red('❌ Not authenticated. Run `envx login` first, or set ENVX_API_KEY.')
+          );
+          process.exit(1);
+        }
+        const organizationId = await resolveCurrentOrganizationId(parsedUrl.baseUrl, apiKey);
         const payload = {
           tag,
           timestamp,
           items,
+          ...(organizationId ? { organizationId } : {}),
         };
 
         if (options.verbose) {
@@ -162,59 +231,51 @@ export function pushCommand(program: Command): void {
           console.log(chalk.gray(`   Timestamp: ${timestamp}`));
           console.log(chalk.gray(`   Variables: ${items.length}`));
           for (const item of items) {
-            console.log(chalk.gray(`   ${safeKey(item.key)}: ${valueMetadata(item.value)}`));
+            const key = redactKnownValues(safeKey(item.key), items);
+            console.log(chalk.gray(`   ${key}: ${valueMetadata(item.value)}`));
           }
         }
 
         // 发送 HTTP 请求
         console.log(chalk.blue('📤 Sending data to remote server...'));
 
-        type MinimalResponse = {
-          ok: boolean;
-          status: number;
-          statusText: string;
-          json(): Promise<unknown>;
-        };
-
-        type MinimalRequestInit = {
-          method?: string;
-          headers?: Record<string, string>;
-          body?: string;
-        };
-
-        type MinimalFetch = (input: string, init?: MinimalRequestInit) => Promise<MinimalResponse>;
-
-        const fetchFn: MinimalFetch | undefined = (
-          globalThis as unknown as { fetch?: MinimalFetch }
-        ).fetch;
-
-        if (!fetchFn) {
-          throw new Error('fetch is not available in this Node.js runtime. Please use Node 18+');
+        const db = createDatabaseManagerFromConfigPath(configPath);
+        let state: ReturnType<typeof db.getRemoteState>;
+        try {
+          state = db.getRemoteState(parsedUrl.baseUrl, parsedUrl.namespace, parsedUrl.project);
+        } finally {
+          db.close();
         }
-
-        const headers: Record<string, string> = {
+        const conditionalHeader = state ? { 'If-Match': state.etag } : { 'If-None-Match': '*' };
+        const idempotencyKey = createIdempotencyKey();
+        const headers = controlPlaneHeaders(apiKey, {
           'Content-Type': 'application/json',
-        };
-        const apiKey = devConfigResult.config.apiKey || process.env.ENVX_API_KEY || getCredential();
-        if (!apiKey) {
-          console.error(
-            chalk.red('❌ Not authenticated. Run `envx login` first, or set ENVX_API_KEY.')
-          );
-          process.exit(1);
-        }
-        headers['Authorization'] = `Bearer ${apiKey}`;
-
-        const response = await fetchFn(remoteUrl, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(payload),
+          Accept: 'application/json',
+          'Idempotency-Key': idempotencyKey,
+          ...conditionalHeader,
+        });
+        const legacyHeaders = controlPlaneHeaders(apiKey, {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'Idempotency-Key': idempotencyKey,
         });
 
-        const responseData = (await response.json()) as {
-          code: number;
-          msg: string;
-          data: unknown;
-        };
+        const { response, legacy } = await fetchWithLegacyFallback(
+          {
+            canonicalUrl: remoteUrl,
+            legacyUrl: legacyRemoteUrl,
+          },
+          {
+            method: 'PUT',
+            legacyMethod: 'POST',
+            headers,
+            legacyHeaders,
+            body: JSON.stringify(payload),
+          }
+        );
+
+        const responseBody: unknown = await response.json().catch(() => null);
+        const returnedData = responseData(responseBody);
 
         if (!response.ok) {
           if (response.status === 401) {
@@ -233,20 +294,48 @@ export function pushCommand(program: Command): void {
               )
             );
             console.error(chalk.yellow('💡 Tip: Use `envx org list` to see your organizations.'));
+          } else if (response.status === 412) {
+            console.error(
+              chalk.red(
+                '❌ Remote revision changed. Run `envx pull`, merge the changes, then retry.'
+              )
+            );
+          } else if (response.status === 409) {
+            console.error(
+              chalk.red(
+                '❌ Namespace ownership conflict. Verify the selected user or organization before retrying.'
+              )
+            );
           } else {
             console.error(chalk.red(`❌ Error: Remote server returned ${response.status}`));
-            const message =
-              typeof responseData.msg === 'string' ? responseData.msg : 'Unknown error';
+            const message = responseErrorMessage(
+              responseBody,
+              response.statusText || 'Unknown error'
+            );
             console.error(chalk.red(`Message: ${redactKnownValues(message, items)}`));
           }
-          if (options.verbose && responseData.data) {
-            printSafeDataSummary(responseData.data, items, true);
+          if (options.verbose && returnedData) {
+            printSafeDataSummary(returnedData, items, true);
           }
           process.exit(1);
         }
 
         // 处理成功响应
-        if (responseData.code === 0) {
+        if (responseSucceeded(responseBody, legacy)) {
+          const etag = etagFromResponse(response, responseBody);
+          if (etag) {
+            const stateDb = createDatabaseManagerFromConfigPath(configPath);
+            try {
+              stateDb.saveRemoteState(
+                parsedUrl.baseUrl,
+                parsedUrl.namespace,
+                parsedUrl.project,
+                etag
+              );
+            } finally {
+              stateDb.close();
+            }
+          }
           console.log(chalk.green('✅ Successfully pushed to remote server'));
           console.log(chalk.blue('\n📋 Summary:'));
           console.log(chalk.gray(`   Tag: ${tag}`));
@@ -255,16 +344,20 @@ export function pushCommand(program: Command): void {
           // 不再显示 Version
           console.log(chalk.gray(`   Variables pushed: ${items.length}`));
           console.log(chalk.gray(`   Remote URL: ${remoteUrl}`));
+          console.log(
+            chalk.gray(`   API contract: ${legacy ? 'legacy compatibility' : 'canonical'}`)
+          );
+          if (etag) console.log(chalk.gray(`   Revision: ${etag}`));
 
-          if (options.verbose && responseData.data && Array.isArray(responseData.data)) {
+          if (options.verbose && returnedData) {
             console.log(chalk.blue('\n📝 Remote response:'));
-            printSafeDataSummary(responseData.data, items);
+            printSafeDataSummary(returnedData, items);
           }
         } else {
-          const message = typeof responseData.msg === 'string' ? responseData.msg : 'Unknown error';
+          const message = responseErrorMessage(responseBody, 'Unknown error');
           console.error(chalk.red(`❌ Error: ${redactKnownValues(message, items)}`));
-          if (options.verbose && responseData.data) {
-            printSafeDataSummary(responseData.data, items, true);
+          if (options.verbose && returnedData) {
+            printSafeDataSummary(returnedData, items, true);
           }
           process.exit(1);
         }

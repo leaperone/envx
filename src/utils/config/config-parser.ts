@@ -86,6 +86,20 @@ export class ConfigParser {
       return { isValid: false, errors, warnings };
     }
 
+    const stringFields: Array<keyof DevConfig> = [
+      'baseUrl',
+      'apiBaseUrl',
+      'dashboardUrl',
+      'namespace',
+      'project',
+      'apiKey',
+    ];
+    for (const field of stringFields) {
+      if (config[field] !== undefined && typeof config[field] !== 'string') {
+        errors.push(`dev 配置字段 ${field} 必须是字符串`);
+      }
+    }
+
     return { isValid: errors.length === 0, errors, warnings };
   }
 

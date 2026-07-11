@@ -2,7 +2,9 @@
  * URL 解析工具
  */
 
-export const DEFAULT_BASE_URL = 'https://leaper.one';
+import { DEFAULT_API_BASE_URL } from './credentials.js';
+
+export const DEFAULT_BASE_URL = DEFAULT_API_BASE_URL;
 
 export interface ParsedUrl {
   baseUrl: string;
@@ -13,6 +15,7 @@ export interface ParsedUrl {
 
 export interface UrlParseOptions {
   baseUrl?: string | undefined;
+  apiBaseUrl?: string | undefined;
   namespace?: string | undefined;
   project?: string | undefined;
 }
@@ -21,10 +24,10 @@ function normalizeBaseUrl(input: string): string {
   if (!input) return DEFAULT_BASE_URL;
   const trimmed = input.trim();
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    return trimmed;
+    return trimmed.replace(/\/+$/, '');
   }
   // 默认补全为 https
-  return `https://${trimmed}`;
+  return `https://${trimmed.replace(/\/+$/, '')}`;
 }
 
 /**
@@ -44,10 +47,14 @@ export function parseRef(ref: string, options: UrlParseOptions = {}): ParsedUrl 
     try {
       const G = globalThis as unknown as { URL?: new (u: string) => unknown };
       if (G.URL) {
-        const url = new G.URL(ref) as unknown as { protocol: string; host: string; pathname: string };
+        const url = new G.URL(ref) as unknown as {
+          protocol: string;
+          host: string;
+          pathname: string;
+        };
         baseUrl = normalizeBaseUrl(`${url.protocol}//${url.host}`);
         const segments = url.pathname.split('/').filter(Boolean);
-      // 期望末尾两段为 namespace 与 project(:tag)
+        // 期望末尾两段为 namespace 与 project(:tag)
         if (segments.length >= 2) {
           namespace = segments[segments.length - 2];
           const last = segments[segments.length - 1] ?? '';
@@ -69,13 +76,13 @@ export function parseRef(ref: string, options: UrlParseOptions = {}): ParsedUrl 
     // 2) ns/project:tag (no baseurl). baseUrl 由外部提供
     const nsProjWithTag = ref.match(/^([^/]+)\/([^:]+):(.+)$/);
     if (nsProjWithTag && nsProjWithTag[1] && nsProjWithTag[2]) {
-      baseUrl = normalizeBaseUrl(options.baseUrl || '');
+      baseUrl = normalizeBaseUrl(options.apiBaseUrl || options.baseUrl || '');
       namespace = nsProjWithTag[1];
       project = nsProjWithTag[2];
       tag = nsProjWithTag[3];
     } else if (!ref.includes('/') && !ref.includes(':')) {
       // 3) only tag — 由 options 提供 baseUrl/namespace/project
-      baseUrl = normalizeBaseUrl(options.baseUrl || '');
+      baseUrl = normalizeBaseUrl(options.apiBaseUrl || options.baseUrl || '');
       namespace = options.namespace;
       project = options.project;
       tag = ref;
@@ -89,7 +96,7 @@ export function parseRef(ref: string, options: UrlParseOptions = {}): ParsedUrl 
 
   // 从环境变量中获取缺失的配置项
   if (!baseUrl) {
-    baseUrl = process.env.ENVX_BASEURL;
+    baseUrl = process.env.ENVX_API_BASE_URL || process.env.ENVX_BASEURL;
   }
   if (!namespace) {
     namespace = process.env.ENVX_NAMESPACE;
@@ -118,16 +125,23 @@ export function parseRef(ref: string, options: UrlParseOptions = {}): ParsedUrl 
 
 /**
  * 构建 API URL
- * 格式: <baseUrl>/api/v1/envx/<namespace>/<project>/push
+ * 格式: <baseUrl>/api/v1/envx/<namespace>/<project>
  */
 export function buildPushUrl(parsedUrl: ParsedUrl): string {
   const baseUrl = parsedUrl.baseUrl.replace(/\/$/, '');
-  return `${baseUrl}/api/v1/envx/${parsedUrl.namespace}/${parsedUrl.project}/push`;
+  return `${baseUrl}/api/v1/envx/${encodeURIComponent(parsedUrl.namespace)}/${encodeURIComponent(parsedUrl.project)}`;
 }
 
 export function buildPullUrl(parsedUrl: ParsedUrl): string {
-  const baseUrl = parsedUrl.baseUrl.replace(/\/$/, '');
-  return `${baseUrl}/api/v1/envx/${parsedUrl.namespace}/${parsedUrl.project}/pull`;
+  return buildPushUrl(parsedUrl);
+}
+
+export function buildLegacyPushUrl(parsedUrl: ParsedUrl): string {
+  return `${buildPushUrl(parsedUrl)}/push`;
+}
+
+export function buildLegacyPullUrl(parsedUrl: ParsedUrl): string {
+  return `${buildPullUrl(parsedUrl)}/pull`;
 }
 
 /**

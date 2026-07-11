@@ -11,6 +11,14 @@ export interface EnvHistoryRecord {
   tag: string;
 }
 
+export interface RemoteStateRecord {
+  apiBaseUrl: string;
+  namespace: string;
+  project: string;
+  etag: string;
+  updatedAt: string;
+}
+
 export class DatabaseManager {
   private db: Database.Database;
   private dbPath: string;
@@ -23,20 +31,24 @@ export class DatabaseManager {
         mkdirSync(envxDir, { recursive: true });
       }
     } catch (err) {
-      throw new Error(`Failed to create .envx directory at ${envxDir}: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(
+        `Failed to create .envx directory at ${envxDir}: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
 
     this.dbPath = join(envxDir, 'envx.db');
     try {
       this.db = new Database(this.dbPath);
     } catch (err) {
-      throw new Error(`Failed to open database at ${this.dbPath}: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(
+        `Failed to open database at ${this.dbPath}: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
 
     this.initDatabase();
   }
 
-  private static readonly SCHEMA_VERSION = 2;
+  private static readonly SCHEMA_VERSION = 3;
 
   /**
    * 初始化数据库表结构
@@ -49,7 +61,9 @@ export class DatabaseManager {
         )
       `);
 
-      const row = this.db.prepare('SELECT version FROM schema_version LIMIT 1').get() as { version: number } | undefined;
+      const row = this.db.prepare('SELECT version FROM schema_version LIMIT 1').get() as
+        | { version: number }
+        | undefined;
       const currentVersion = row?.version ?? 0;
 
       if (currentVersion < 1) {
@@ -71,18 +85,34 @@ export class DatabaseManager {
         `);
       }
 
-      // Future migrations go here:
-      // if (currentVersion < 2) { ... }
+      if (currentVersion < 3) {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS remote_state (
+            api_base_url TEXT NOT NULL,
+            namespace TEXT NOT NULL,
+            project TEXT NOT NULL,
+            etag TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (api_base_url, namespace, project)
+          )
+        `);
+      }
 
       if (currentVersion < DatabaseManager.SCHEMA_VERSION) {
         if (currentVersion === 0) {
-          this.db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(DatabaseManager.SCHEMA_VERSION);
+          this.db
+            .prepare('INSERT INTO schema_version (version) VALUES (?)')
+            .run(DatabaseManager.SCHEMA_VERSION);
         } else {
-          this.db.prepare('UPDATE schema_version SET version = ?').run(DatabaseManager.SCHEMA_VERSION);
+          this.db
+            .prepare('UPDATE schema_version SET version = ?')
+            .run(DatabaseManager.SCHEMA_VERSION);
         }
       }
     } catch (err) {
-      throw new Error(`Failed to initialize database schema: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(
+        `Failed to initialize database schema: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 
@@ -146,6 +176,37 @@ export class DatabaseManager {
       envMap[result.key] = result.value;
     }
     return envMap;
+  }
+
+  getRemoteState(
+    apiBaseUrl: string,
+    namespace: string,
+    project: string
+  ): RemoteStateRecord | undefined {
+    const row = this.db
+      .prepare(
+        `
+        SELECT api_base_url AS apiBaseUrl, namespace, project, etag, updated_at AS updatedAt
+        FROM remote_state
+        WHERE api_base_url = ? AND namespace = ? AND project = ?
+      `
+      )
+      .get(apiBaseUrl, namespace, project) as RemoteStateRecord | undefined;
+    return row;
+  }
+
+  saveRemoteState(apiBaseUrl: string, namespace: string, project: string, etag: string): void {
+    this.db
+      .prepare(
+        `
+        INSERT INTO remote_state (api_base_url, namespace, project, etag, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(api_base_url, namespace, project) DO UPDATE SET
+          etag = excluded.etag,
+          updated_at = excluded.updated_at
+      `
+      )
+      .run(apiBaseUrl, namespace, project, etag, new Date().toISOString());
   }
 
   /**

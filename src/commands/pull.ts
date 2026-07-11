@@ -4,12 +4,16 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { ConfigManager } from '@/utils/config';
 import { saveEnvs, writeEnvs } from '@/utils/com';
-import {
-  parseRef,
-  buildPullUrl,
-} from '@/utils/url';
+import { parseRef, buildPullUrl, buildLegacyPullUrl } from '@/utils/url';
 import { detectDefaultShell, exportEnv } from '@/utils/env';
-import { getCredential } from '@/utils/credentials';
+import { getCredential, resolveApiBaseUrl } from '@/utils/credentials';
+import { createDatabaseManagerFromConfigPath } from '@/utils/db';
+import {
+  controlPlaneHeaders,
+  etagFromResponse,
+  fetchWithLegacyFallback,
+  responseErrorMessage,
+} from '@/utils/http';
 // env file updates will be handled via writeEnvs
 
 interface PullOptions {
@@ -33,6 +37,33 @@ interface RemoteEnvRecord {
   action: string;
   source: string;
   tag?: string;
+}
+
+function readRemoteRecords(body: unknown): RemoteEnvRecord[] {
+  if (!body || typeof body !== 'object') return [];
+  const data = (body as Record<string, unknown>).data;
+  if (Array.isArray(data)) return data.filter(isRemoteEnvRecord);
+  if (data && typeof data === 'object') {
+    const records = (data as Record<string, unknown>).records;
+    if (Array.isArray(records)) return records.filter(isRemoteEnvRecord);
+  }
+  return [];
+}
+
+function isRemoteEnvRecord(value: unknown): value is RemoteEnvRecord {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.key === 'string' && typeof record.value === 'string';
+}
+
+function valueMetadata(value: string): string {
+  return `length=${Buffer.byteLength(value, 'utf8')}`;
+}
+
+function responseSucceeded(body: unknown, legacy: boolean): boolean {
+  if (!body || typeof body !== 'object') return false;
+  const record = body as Record<string, unknown>;
+  return legacy ? record.code === 0 : record.success === true;
 }
 
 export function pullCommand(program: Command): void {
@@ -84,18 +115,21 @@ export function pullCommand(program: Command): void {
 
         // 解析远程服务器 URL 和参数
         const parsedUrl = parseRef(ref, {
-          baseUrl: devConfigResult.config.baseUrl,
+          apiBaseUrl: resolveApiBaseUrl(
+            devConfigResult.config.apiBaseUrl,
+            devConfigResult.config.baseUrl
+          ),
           namespace: devConfigResult.config.namespace,
           project: devConfigResult.config.project,
         });
 
         // 构建 API URL (pull endpoint)
         const apiUrl = buildPullUrl(parsedUrl);
+        const legacyApiUrl = buildLegacyPullUrl(parsedUrl);
         console.log(chalk.gray(`🌐 Remote URL: ${apiUrl}`));
 
         // 构建查询参数
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const searchParams = new (globalThis as any).URLSearchParams();
+        const searchParams = new URLSearchParams();
         const tag = parsedUrl.tag || ref;
         searchParams.set('tag', tag);
         if (options.key) {
@@ -108,78 +142,83 @@ export function pullCommand(program: Command): void {
         // 发送 HTTP 请求
         console.log(chalk.blue('📤 Fetching data from remote server...'));
 
-        type MinimalResponse = {
-          ok: boolean;
-          status: number;
-          statusText: string;
-          json(): Promise<unknown>;
-        };
-
-        type MinimalRequestInit = {
-          method?: string;
-          headers?: Record<string, string>;
-        };
-
-        type MinimalFetch = (input: string, init?: MinimalRequestInit) => Promise<MinimalResponse>;
-
-        const fetchFn: MinimalFetch | undefined = (
-          globalThis as unknown as { fetch?: MinimalFetch }
-        ).fetch;
-
-        if (!fetchFn) {
-          throw new Error('fetch is not available in this Node.js runtime. Please use Node 18+');
-        }
-
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        };
         const apiKey = devConfigResult.config.apiKey || process.env.ENVX_API_KEY || getCredential();
         if (!apiKey) {
-          console.error(chalk.red('❌ Not authenticated. Run `envx login` first, or set ENVX_API_KEY.'));
+          console.error(
+            chalk.red('❌ Not authenticated. Run `envx login` first, or set ENVX_API_KEY.')
+          );
           process.exit(1);
         }
-        headers['Authorization'] = `Bearer ${apiKey}`;
+        const headers = controlPlaneHeaders(apiKey, { Accept: 'application/json' });
+        const legacyFullUrl = `${legacyApiUrl}?${searchParams.toString()}`;
+        const { response, legacy } = await fetchWithLegacyFallback(
+          {
+            canonicalUrl: fullUrl,
+            legacyUrl: legacyFullUrl,
+          },
+          {
+            method: 'GET',
+            headers,
+          }
+        );
 
-        const response = await fetchFn(fullUrl, {
-          method: 'GET',
-          headers,
-        });
-
-        const responseData = (await response.json()) as {
-          code: number;
-          msg: string;
-          data: RemoteEnvRecord[];
-        };
+        const responseData: unknown = await response.json().catch(() => null);
 
         if (!response.ok) {
           if (response.status === 401) {
-            console.error(chalk.red('❌ Authentication failed. Run `envx login` to re-authenticate.'));
+            console.error(
+              chalk.red('❌ Authentication failed. Run `envx login` to re-authenticate.')
+            );
           } else if (response.status === 403) {
-            console.error(chalk.red(`❌ Permission denied: You don't have access to namespace "${parsedUrl.namespace}".`));
-            console.error(chalk.yellow('💡 Tip: Check that you have pull permission, or ask the namespace owner to grant access.'));
+            console.error(
+              chalk.red(
+                `❌ Permission denied: You don't have access to namespace "${parsedUrl.namespace}".`
+              )
+            );
+            console.error(
+              chalk.yellow(
+                '💡 Tip: Check that you have pull permission, or ask the namespace owner to grant access.'
+              )
+            );
             console.error(chalk.yellow('💡 Tip: Use `envx org list` to see your organizations.'));
+          } else if (response.status === 409) {
+            console.error(
+              chalk.red(
+                '❌ Namespace ownership conflict. Verify the selected user or organization before retrying.'
+              )
+            );
           } else {
             console.error(chalk.red(`❌ Error: Remote server returned ${response.status}`));
-            console.error(chalk.red(`Message: ${responseData.msg || 'Unknown error'}`));
+            console.error(
+              chalk.red(
+                `Message: ${responseErrorMessage(responseData, response.statusText || 'Unknown error')}`
+              )
+            );
           }
-          if (options.verbose && responseData.data) {
-            console.error(chalk.gray('Response data:'));
-            console.error(chalk.gray(JSON.stringify(responseData.data, null, 2)));
+          if (options.verbose) {
+            console.error(chalk.gray('Response body omitted because it may contain secrets.'));
           }
           process.exit(1);
         }
 
         // 处理成功响应
-        if (responseData.code !== 0) {
-          console.error(chalk.red(`❌ Error: ${responseData.msg || 'Unknown error'}`));
-          if (options.verbose && responseData.data) {
-            console.error(chalk.gray('Response data:'));
-            console.error(chalk.gray(JSON.stringify(responseData.data, null, 2)));
-          }
+        if (!responseSucceeded(responseData, legacy)) {
+          console.error(
+            chalk.red(`❌ Error: ${responseErrorMessage(responseData, 'Unknown error')}`)
+          );
           process.exit(1);
         }
 
-        const remoteRecords = responseData.data || [];
+        const remoteRecords = readRemoteRecords(responseData);
+        const etag = etagFromResponse(response, responseData);
+        if (etag) {
+          const db = createDatabaseManagerFromConfigPath(configPath);
+          try {
+            db.saveRemoteState(parsedUrl.baseUrl, parsedUrl.namespace, parsedUrl.project, etag);
+          } finally {
+            db.close();
+          }
+        }
 
         if (remoteRecords.length === 0) {
           console.log(chalk.yellow('📭 No environment variables found on remote server'));
@@ -211,7 +250,7 @@ export function pullCommand(program: Command): void {
           console.log(chalk.blue('\n📋 Pulled variables:'));
           for (const [k, v] of Object.entries(envMapToSave)) {
             const tagInfo = tagForSave ? ` (tag: ${tagForSave})` : '';
-            console.log(chalk.gray(`   ${k} = ${v}${tagInfo}`));
+            console.log(chalk.gray(`   ${k}: ${valueMetadata(v)}${tagInfo}`));
           }
         }
 
@@ -233,7 +272,7 @@ export function pullCommand(program: Command): void {
             const skipped = candidateVariables.filter(v => !v.inConfig);
             skipped.forEach(v =>
               console.log(
-                chalk.yellow(`⚠️  Skipping ${v.key} (not in config, use --force to include)`) 
+                chalk.yellow(`⚠️  Skipping ${v.key} (not in config, use --force to include)`)
               )
             );
           }
@@ -249,7 +288,7 @@ export function pullCommand(program: Command): void {
               acc[v.key] = v.value;
               return acc;
             }, {});
-            
+
             const exportCommands = await exportEnv(envMap);
             for (const command of exportCommands) {
               console.log(chalk.white(command));
@@ -260,7 +299,7 @@ export function pullCommand(program: Command): void {
           } else {
             for (const variable of variables) {
               process.env[variable.key] = variable.value;
-              console.log(chalk.green(`✅ Set ${variable.key} = ${variable.value}`));
+              console.log(chalk.green(`✅ Set ${variable.key}`));
             }
 
             if (variables.length > 0) {
@@ -290,6 +329,10 @@ export function pullCommand(program: Command): void {
         console.log(chalk.gray(`   Records pulled: ${remoteRecords.length}`));
         console.log(chalk.gray(`   New records saved: ${savedCount}`));
         console.log(chalk.gray(`   Remote URL: ${apiUrl}`));
+        console.log(
+          chalk.gray(`   API contract: ${legacy ? 'legacy compatibility' : 'canonical'}`)
+        );
+        if (etag) console.log(chalk.gray(`   Revision: ${etag}`));
 
         console.log(chalk.gray(`   Auto-load: ${!options.notLoad ? 'enabled' : 'disabled'}`));
       } catch (error) {
