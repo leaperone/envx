@@ -5,6 +5,7 @@ import { getCredential, getApiBaseUrl, getCurrentOrg, setCurrentOrg } from '@/ut
 import {
   controlPlaneHeaders,
   createIdempotencyKey,
+  fetchControlPlaneUserId,
   fetchWithLegacyFallback,
   responseErrorMessage,
 } from '@/utils/http';
@@ -153,7 +154,8 @@ export function orgCommand(program: Command): void {
         console.log(chalk.gray(`   ID: ${data.data.id}`));
 
         // Auto-switch to the new org
-        setCurrentOrg(data.data.slug, data.data.id);
+        const userId = await fetchControlPlaneUserId(apiBaseUrl, token);
+        setCurrentOrg(data.data.slug, data.data.id, { apiBaseUrl, userId });
         console.log(chalk.blue(`🔄 Switched to organization "${data.data.slug}"`));
       } catch (err) {
         spinner.stop();
@@ -263,7 +265,8 @@ export function orgCommand(program: Command): void {
         if (!data.data?.id || !data.data.slug) {
           throw new Error('Organization response did not include its identity');
         }
-        setCurrentOrg(data.data.slug, data.data.id);
+        const userId = await fetchControlPlaneUserId(apiBaseUrl, token);
+        setCurrentOrg(data.data.slug, data.data.id, { apiBaseUrl, userId });
         console.log(chalk.green(`✅ Switched to organization "${slug}"`));
       } catch (err) {
         spinner.stop();

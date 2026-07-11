@@ -7,8 +7,11 @@ export interface Credentials {
   baseUrl?: string;
   apiBaseUrl?: string;
   dashboardUrl?: string;
+  userId?: string;
   currentOrg?: string;
   currentOrgId?: string;
+  currentOrgApiBaseUrl?: string;
+  currentOrgUserId?: string;
 }
 
 const CREDENTIALS_DIR = path.join(os.homedir(), '.envx');
@@ -44,6 +47,11 @@ export function saveCredentials(credentials: Credentials): void {
 export function clearCredentials(): void {
   const credentials = loadCredentials();
   delete credentials.token;
+  delete credentials.userId;
+  delete credentials.currentOrg;
+  delete credentials.currentOrgId;
+  delete credentials.currentOrgApiBaseUrl;
+  delete credentials.currentOrgUserId;
   saveCredentials(credentials);
 }
 
@@ -122,15 +130,47 @@ export function getCurrentOrgId(): string | undefined {
   return loadCredentials().currentOrgId;
 }
 
-export function setCurrentOrg(org: string | undefined, orgId?: string): void {
+export function getCurrentOrgContext(): {
+  slug: string;
+  id?: string;
+  apiBaseUrl?: string;
+  userId?: string;
+} | null {
+  const credentials = loadCredentials();
+  return credentials.currentOrg
+    ? {
+        slug: credentials.currentOrg,
+        ...(credentials.currentOrgId ? { id: credentials.currentOrgId } : {}),
+        ...(credentials.currentOrgApiBaseUrl
+          ? { apiBaseUrl: credentials.currentOrgApiBaseUrl }
+          : {}),
+        ...(credentials.currentOrgUserId ? { userId: credentials.currentOrgUserId } : {}),
+      }
+    : null;
+}
+
+export function setCurrentOrg(
+  org: string | undefined,
+  orgId?: string,
+  context?: { apiBaseUrl: string; userId: string }
+): void {
   const credentials = loadCredentials();
   if (org) {
     credentials.currentOrg = org;
     if (orgId) credentials.currentOrgId = orgId;
     else delete credentials.currentOrgId;
+    if (context) {
+      credentials.currentOrgApiBaseUrl = normalizeBaseUrl(context.apiBaseUrl);
+      credentials.currentOrgUserId = context.userId;
+    } else {
+      delete credentials.currentOrgApiBaseUrl;
+      delete credentials.currentOrgUserId;
+    }
   } else {
     delete credentials.currentOrg;
     delete credentials.currentOrgId;
+    delete credentials.currentOrgApiBaseUrl;
+    delete credentials.currentOrgUserId;
   }
   saveCredentials(credentials);
 }

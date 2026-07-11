@@ -16,6 +16,7 @@ import {
   controlPlaneHeaders,
   createIdempotencyKey,
   fetchWithLegacyFallback,
+  revokeCurrentControlToken,
   responseErrorMessage,
   USER_AGENT,
 } from '@/utils/http';
@@ -115,12 +116,21 @@ async function exchangeAuthorizationCode(input: {
 
 function browserLogin(dashboardUrl: string, apiBaseUrl: string): Promise<string> {
   const pkce = createPkcePair();
+  const state = randomBytes(24).toString('base64url');
   let redirectUri = '';
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const url = new URL(req.url || '/', `http://localhost`);
 
       if (url.pathname === '/callback') {
+        if (url.searchParams.get('state') !== state) {
+          res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end('<html><body><h2>Authorization state mismatch.</h2></body></html>');
+          clearTimeout(timer);
+          server.close();
+          reject(new Error('Authorization state mismatch'));
+          return;
+        }
         const code = url.searchParams.get('code');
         if (!code) {
           res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -176,6 +186,7 @@ function browserLogin(dashboardUrl: string, apiBaseUrl: string): Promise<string>
       authUrl.searchParams.set('code_challenge', pkce.challenge);
       authUrl.searchParams.set('code_challenge_method', 'S256');
       authUrl.searchParams.set('scope', ENVX_CONTROL_SCOPES.join(' '));
+      authUrl.searchParams.set('state', state);
 
       console.log(`Opening browser to authorize...`);
       console.log(`  ${chalk.underline(authUrl.toString())}`);
@@ -257,9 +268,14 @@ async function deviceLogin(dashboardUrl: string, apiBaseUrl: string): Promise<st
   console.log();
   console.log(`  Your device code: ${chalk.bold(codeData.user_code)}`);
   console.log();
-  const verifyUrl =
-    codeData.verification_uri_complete ||
-    `${dashboardUrl}${codeData.verification_uri}?user_code=${encodeURIComponent(codeData.user_code)}`;
+  const verifyUrl = (() => {
+    const url = new URL(
+      codeData.verification_uri_complete || codeData.verification_uri,
+      dashboardUrl
+    );
+    if (!codeData.verification_uri_complete) url.searchParams.set('user_code', codeData.user_code);
+    return url.toString();
+  })();
   console.log(`  Open this URL to authorize:`);
   console.log(`  ${chalk.underline(verifyUrl)}`);
   console.log();
@@ -267,7 +283,7 @@ async function deviceLogin(dashboardUrl: string, apiBaseUrl: string): Promise<st
   openBrowser(verifyUrl);
 
   const spinner = ora('Waiting for authorization...').start();
-  const interval = (codeData.interval || 5) * 1000;
+  let interval = (codeData.interval || 5) * 1000;
   const deadline = Date.now() + codeData.expires_in * 1000;
 
   while (Date.now() < deadline) {
@@ -296,7 +312,11 @@ async function deviceLogin(dashboardUrl: string, apiBaseUrl: string): Promise<st
       return exchangeDashboardSession(apiBaseUrl, tokenData.access_token);
     }
 
-    if (tokenData.error === 'authorization_pending' || tokenData.error === 'slow_down') {
+    if (tokenData.error === 'slow_down') {
+      interval += 5_000;
+      continue;
+    }
+    if (tokenData.error === 'authorization_pending') {
       continue;
     }
 
@@ -390,7 +410,32 @@ export function loginCommand(program: Command): void {
 
           // Save token
           const credentials = loadCredentials();
+          if (credentials.token?.startsWith('lpc_') && credentials.token !== token) {
+            try {
+              await revokeCurrentControlToken(
+                credentials.apiBaseUrl || apiBaseUrl,
+                credentials.token
+              );
+            } catch (revokeError) {
+              if (token.startsWith('lpc_')) {
+                await revokeCurrentControlToken(apiBaseUrl, token).catch(() => undefined);
+              }
+              throw new Error(
+                `Previous control token could not be revoked; credentials were not overwritten. ${(revokeError as Error).message}`
+              );
+            }
+          }
+          if (
+            credentials.currentOrgApiBaseUrl !== apiBaseUrl ||
+            credentials.currentOrgUserId !== data.data.id
+          ) {
+            delete credentials.currentOrg;
+            delete credentials.currentOrgId;
+            delete credentials.currentOrgApiBaseUrl;
+            delete credentials.currentOrgUserId;
+          }
           credentials.token = token;
+          credentials.userId = data.data.id;
           credentials.apiBaseUrl = apiBaseUrl;
           credentials.dashboardUrl = dashboardUrl;
           delete credentials.baseUrl;

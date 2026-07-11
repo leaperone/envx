@@ -7,8 +7,7 @@ import { getEnvs } from '@/utils/com';
 import { parseRef, buildLegacyPushUrl, buildPushUrl } from '@/utils/url';
 import {
   getCredential,
-  getCurrentOrg,
-  getCurrentOrgId,
+  getCurrentOrgContext,
   resolveApiBaseUrl,
   setCurrentOrg,
 } from '@/utils/credentials';
@@ -17,6 +16,7 @@ import {
   controlPlaneHeaders,
   createIdempotencyKey,
   etagFromResponse,
+  fetchControlPlaneUserId,
   fetchWithLegacyFallback,
   responseErrorMessage,
 } from '@/utils/http';
@@ -106,12 +106,19 @@ async function resolveCurrentOrganizationId(
   apiBaseUrl: string,
   token: string
 ): Promise<string | undefined> {
-  const slug = getCurrentOrg();
-  if (!slug) return undefined;
-  const storedId = getCurrentOrgId();
-  if (storedId) return storedId;
+  const context = getCurrentOrgContext();
+  if (!context) return undefined;
+  if (!context.apiBaseUrl || context.apiBaseUrl !== apiBaseUrl || !context.userId) {
+    setCurrentOrg(undefined);
+    return undefined;
+  }
+  const currentUserId = await fetchControlPlaneUserId(apiBaseUrl, token);
+  if (currentUserId !== context.userId) {
+    setCurrentOrg(undefined);
+    return undefined;
+  }
 
-  const encodedSlug = encodeURIComponent(slug);
+  const encodedSlug = encodeURIComponent(context.slug);
   const { response } = await fetchWithLegacyFallback(
     {
       canonicalUrl: new URL(`/api/v1/organizations/${encodedSlug}`, apiBaseUrl).toString(),
@@ -123,14 +130,18 @@ async function resolveCurrentOrganizationId(
   const data = responseData(body);
   const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : null;
   if (!response.ok || typeof record?.id !== 'string' || typeof record.slug !== 'string') {
+    if (response.status === 403 || response.status === 404) {
+      setCurrentOrg(undefined);
+      return undefined;
+    }
     throw new Error(
       responseErrorMessage(
         body,
-        `Current organization "${slug}" could not be resolved (HTTP ${response.status})`
+        `Current organization "${context.slug}" could not be resolved (HTTP ${response.status})`
       )
     );
   }
-  setCurrentOrg(record.slug, record.id);
+  setCurrentOrg(record.slug, record.id, { apiBaseUrl, userId: currentUserId });
   return record.id;
 }
 

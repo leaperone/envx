@@ -74,9 +74,22 @@ function requestMethod(init: RequestInit): string {
   return (init.method || 'GET').toUpperCase();
 }
 
+function requestHasHeader(init: RequestInit, name: string): boolean {
+  const headers = init.headers;
+  if (!headers) return false;
+  const normalizedName = name.toLowerCase();
+  if (Array.isArray(headers)) {
+    return headers.some(([headerName]) => headerName.toLowerCase() === normalizedName);
+  }
+  const headerCollection = headers as { has?: (headerName: string) => boolean };
+  if (typeof headerCollection.has === 'function') return headerCollection.has(name);
+  return Object.keys(headers).some(headerName => headerName.toLowerCase() === normalizedName);
+}
+
 function requestCanRetry(init: RequestInit): boolean {
   const method = requestMethod(init);
-  return method === 'GET' || method === 'PUT';
+  if (method === 'GET' || method === 'PUT') return true;
+  return ['POST', 'PATCH', 'DELETE'].includes(method) && requestHasHeader(init, 'Idempotency-Key');
 }
 
 function responseCanRetry(response: Response): boolean {
@@ -153,6 +166,41 @@ export function shouldUseLegacyFallback(status: number): boolean {
 
 export function createIdempotencyKey(): string {
   return randomUUID();
+}
+
+export async function fetchControlPlaneUserId(apiBaseUrl: string, token: string): Promise<string> {
+  const { response } = await fetchWithLegacyFallback(
+    {
+      canonicalUrl: new URL('/api/v1/me', apiBaseUrl).toString(),
+      legacyUrl: new URL('/api/v1/cli/me', apiBaseUrl).toString(),
+    },
+    { method: 'GET', headers: controlPlaneHeaders(token, { Accept: 'application/json' }) }
+  );
+  const body: unknown = await response.json().catch(() => null);
+  const data = body && typeof body === 'object' ? (body as Record<string, unknown>).data : null;
+  const userId = data && typeof data === 'object' ? (data as Record<string, unknown>).id : null;
+  if (!response.ok || typeof userId !== 'string' || !userId) {
+    throw new Error(
+      responseErrorMessage(body, `Unable to resolve current user (HTTP ${response.status})`)
+    );
+  }
+  return userId;
+}
+
+export async function revokeCurrentControlToken(apiBaseUrl: string, token: string): Promise<void> {
+  const { response } = await fetchWithLegacyFallback(
+    { canonicalUrl: new URL('/api/v1/control-tokens/current', apiBaseUrl).toString() },
+    {
+      method: 'DELETE',
+      headers: controlPlaneHeaders(token, {
+        Accept: 'application/json',
+        'Idempotency-Key': createIdempotencyKey(),
+      }),
+    }
+  );
+  if (response.ok || response.status === 401) return;
+  const body: unknown = await response.json().catch(() => null);
+  throw new Error(responseErrorMessage(body, `Remote logout failed (HTTP ${response.status})`));
 }
 
 export function etagFromResponse(response: Response, body: unknown): string | null {
