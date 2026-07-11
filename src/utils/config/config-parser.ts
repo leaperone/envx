@@ -1,6 +1,14 @@
 import { readFileSync } from 'fs';
 import { parse } from 'yaml';
-import { EnvxConfig, ConfigParseResult, ConfigValidationResult, EnvConfig, DevConfig, DevConfigParseResult } from '.';
+import {
+  EnvxConfig,
+  ConfigParseResult,
+  ConfigValidationResult,
+  EnvConfig,
+  EnvTarget,
+  DevConfig,
+  DevConfigParseResult,
+} from '.';
 
 export class ConfigParser {
   /**
@@ -180,7 +188,10 @@ export class ConfigParser {
    * 将 env 配置项的各种格式（string / EnvConfig / undefined / null）
    * 统一转换为 EnvConfig 对象
    */
-  static normalizeEnvValue(value: EnvTarget | EnvConfig | undefined | null, key: string): EnvConfig {
+  static normalizeEnvValue(
+    value: EnvTarget | EnvConfig | undefined | null,
+    key: string
+  ): EnvConfig {
     if (value === null || value === undefined) {
       return this.getDefaultEnvConfig(key);
     }

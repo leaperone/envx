@@ -32,10 +32,10 @@ export interface ConfigParseResult {
 }
 
 export interface DevConfig {
-  baseUrl?: string;
-  namespace?: string;
-  project?: string;
-  apiKey?: string;
+  baseUrl?: string | undefined;
+  namespace?: string | undefined;
+  project?: string | undefined;
+  apiKey?: string | undefined;
 }
 
 export interface DevConfigParseResult {

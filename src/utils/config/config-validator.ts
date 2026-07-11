@@ -233,8 +233,8 @@ export class ConfigValidator {
   private static extractReferencedKey(config: EnvxConfig, target: string): string | null {
     // @username/project/key 格式：提取最后一段作为 key
     const match = target.match(/^@[^/]+\/[^/]+\/([^/]+)$/);
-    if (match) {
-      const key = match[1];
+    const key = match?.[1];
+    if (key) {
       if (key in config.env) {
         return key;
       }
