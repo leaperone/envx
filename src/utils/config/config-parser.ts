@@ -1,6 +1,14 @@
 import { readFileSync } from 'fs';
 import { parse } from 'yaml';
-import { EnvxConfig, ConfigParseResult, ConfigValidationResult, EnvConfig, DevConfig, DevConfigParseResult } from '.';
+import {
+  EnvxConfig,
+  ConfigParseResult,
+  ConfigValidationResult,
+  EnvConfig,
+  EnvTarget,
+  DevConfig,
+  DevConfigParseResult,
+} from '.';
 
 export class ConfigParser {
   /**
