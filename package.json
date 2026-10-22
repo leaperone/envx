@@ -43,9 +43,9 @@
   "packageManager": "pnpm@10.15.0",
   "pnpm": {
     "overrides": {
-      "rollup": ">=4.59.0",
-      "tar-fs": ">=2.1.4",
-      "js-yaml": ">=4.3.2"
+      "rollup": "4.59.0",
+      "tar-fs": "2.1.4",
+      "js-yaml": "4.3.2"
     }
   },
   "dependencies": {
