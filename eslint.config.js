@@ -109,6 +109,11 @@ export default [
         module: 'readonly',
         require: 'readonly',
         exports: 'readonly',
+        // Node 18+ (CI uses node 18): undici fetch / WHATWG URL / timers
+        fetch: 'readonly',
+        URL: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
       },
     },
     plugins: {
